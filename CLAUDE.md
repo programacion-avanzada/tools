@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+## Instrucciones para el asistente
+
+No ejecutar ninguna acción de escritura de `git` ni `gh` (commit, push, crear/borrar branches, tags, releases, cambios de configuración del repo/Pages, etc.). Si hace falta alguna de estas acciones, indicar los comandos para que el usuario los corra a mano.
+
 Guía para crear nuevas visualizaciones didácticas de Programación Avanzada en este proyecto. Hay dos familias:
 - **Tablas de Programación Dinámica** (`dp/knapsack.html`, `dp/lcs.html`, `dp/edit-distance.html`): layout de 2 columnas, tabla HTML interactiva. Ver "Estructura de página" y "Convención de interacción con la tabla" abajo.
 - **Diagramas en Canvas** (`recursion/call-tree.html`): layout full-bleed, dibujo imperativo en `<canvas>`. Ver "Familia 2: visualizaciones basadas en Canvas" abajo.
