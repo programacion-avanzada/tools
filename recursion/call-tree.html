@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Árbol de Llamadas Recursivas</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .canvas-container { flex: 1 1 auto; position: relative; overflow: hidden; }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
+    .empty-state-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .floating-toolbar { position: absolute; transform: translate(-50%, -100%); margin-top: -8px; white-space: nowrap; }
+    .floating-label-input { position: absolute; transform: translate(-50%, -50%); text-align: center; }
+    .connect-hint { position: absolute; top: .75rem; left: 50%; transform: translateX(-50%); }
+    .equation-panel { position: absolute; top: .75rem; right: .75rem; width: 320px; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand mb-0 h5">🌳 Árbol de Llamadas Recursivas</span>
+    <div class="d-flex align-items-center gap-2">
+      <span class="badge bg-secondary" v-if="nodes.length" title="Total de nodos en el diagrama">
+        🔢 {{ nodes.length }} nodo{{ nodes.length === 1 ? '' : 's' }}
+      </span>
+      <button class="btn btn-sm" :class="newTreeConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewTreeClick" title="Borrar todo y empezar un árbol nuevo">
+        {{ newTreeConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleEquation" title="Mostrar/ocultar la ecuación de recurrencia">🧮 Ecuación</button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentDiagram" title="Copiar un link para compartir este diagrama">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="fitToView(true)" title="Recentrar y volver al ajuste automático">🎯 Ajustar vista</button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="canvas-container" ref="containerEl">
+    <canvas
+      ref="canvasEl"
+      @mousedown="onCanvasMouseDown"
+      @mousemove="onCanvasMouseMove"
+      @mouseup="onCanvasMouseUp"
+      @mouseleave="onCanvasMouseUp"
+      @wheel.prevent="onCanvasWheel"
+      @click="onCanvasClick"
+    ></canvas>
+
+    <div class="empty-state-overlay" v-if="!nodes.length">
+      <div class="card shadow-sm" style="max-width: 380px;">
+        <div class="card-body text-center">
+          <div class="fs-1">🌳</div>
+          <p class="mt-2 mb-3 text-muted">Empezá creando el nodo raíz (ej. <code>fib(5)</code>).</p>
+          <div class="input-group">
+            <input class="form-control" v-model="rootLabelInput" placeholder="fib(5)" @keyup.enter="handleCreateRoot" />
+            <button class="btn btn-dark" @click="handleCreateRoot">Crear</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="floating-toolbar btn-group btn-group-sm shadow-sm"
+      v-if="selectedId && !editingId"
+      :style="toolbarStyle">
+      <button class="btn btn-outline-secondary" @click="addChild(selectedId)" title="Agregar hijo">➕</button>
+      <button class="btn" :class="connectingFromId === selectedId ? 'btn-primary' : 'btn-outline-secondary'" @click="startConnecting(selectedId)" title="Conectar a un nodo existente (DAG)">🔗</button>
+      <button class="btn btn-outline-secondary" @click="startEditLabel(selectedId)" title="Editar etiqueta">✏️</button>
+      <button class="btn" :class="deleteConfirmId === selectedId ? 'btn-danger' : 'btn-outline-danger'" @click="handleDeleteClick(selectedId)" title="Eliminar (y su subárbol)">
+        {{ deleteConfirmId === selectedId ? '¿Seguro?' : '🗑️' }}
+      </button>
+    </div>
+
+    <input v-if="editingId"
+      class="floating-label-input form-control form-control-sm"
+      :style="editorStyle"
+      v-model="editingLabel"
+      @keyup.enter="confirmEditLabel"
+      @keyup.esc="cancelEditLabel"
+      @blur="confirmEditLabel"
+      ref="labelInputEl"
+    />
+
+    <div class="connect-hint badge bg-primary" v-if="connectingFromId">
+      Hacé clic en el nodo destino (Esc cancela)
+    </div>
+
+    <button class="btn btn-sm btn-danger floating-toolbar shadow-sm"
+      v-if="selectedEdgeId"
+      :style="edgeToolbarStyle"
+      @click="deleteExtraEdge(selectedEdgeId)">
+      🗑️ Quitar flecha
+    </button>
+
+    <div class="card shadow-sm equation-panel" v-if="showEquation">
+      <div class="card-body p-2">
+        <input class="form-control form-control-sm mb-2" v-model="equationSource" @input="renderEquation"
+          placeholder="T(n) = T(n-1) + T(n-2)" style="font-family: monospace" />
+        <div ref="equationBoxEl" class="text-center overflow-auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar text-center small border-top">
+    <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } = Vue;
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-recursion-call-tree';
+    const NODE_W = 84, NODE_H = 40;
+    const NODE_SPACING_X = 110;
+    const LEVEL_HEIGHT = 110;
+    const PADDING = 80;
+
+    const nodes = ref([]);
+    const extraEdges = ref([]);
+    const selectedId = ref(null);
+    const editingId = ref(null);
+    const editingLabel = ref('');
+    const connectingFromId = ref(null);
+    const deleteConfirmId = ref(null);
+    const selectedEdgeId = ref(null);
+    const camera = reactive({ offsetX: 0, offsetY: 0, scale: 1 });
+    const userAdjustedCamera = ref(false);
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+    const rootLabelInput = ref('fib(5)');
+    const showEquation = ref(false);
+    const equationSource = ref('');
+
+    const canvasEl = ref(null);
+    const containerEl = ref(null);
+    const labelInputEl = ref(null);
+    const equationBoxEl = ref(null);
+
+    let idCounter = 0;
+    function makeId() {
+      return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'n' + (idCounter++);
+    }
+
+    // ── Persistencia ──
+    function currentState() {
+      return {
+        nodes: nodes.value, extraEdges: extraEdges.value,
+        equation: equationSource.value, showEquation: showEquation.value,
+      };
+    }
+    function applyState(data) {
+      nodes.value = data.nodes || [];
+      extraEdges.value = data.extraEdges || [];
+      equationSource.value = data.equation || '';
+      showEquation.value = !!data.showEquation;
+    }
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
+    }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        applyState(JSON.parse(raw));
+      } catch (e) { /* datos corruptos: arrancar en blanco */ }
+    }
+
+    // ── Compartir por URL (#d=...) ──
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer el diagrama de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentDiagram() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── Estructura del árbol ──
+    function childrenOf(id) { return nodes.value.filter(n => n.parentId === id); }
+
+    function createRoot(label) {
+      nodes.value = [{ id: makeId(), label, parentId: null, depth: 0, x: 0, y: 0 }];
+      afterMutation();
+    }
+    function handleCreateRoot() {
+      const label = rootLabelInput.value.trim();
+      if (!label) return;
+      createRoot(label);
+    }
+
+    function addChild(parentId) {
+      const parent = nodes.value.find(n => n.id === parentId);
+      const child = { id: makeId(), label: parent?.label ?? 'nodo', parentId, depth: 0, x: 0, y: 0 };
+      nodes.value.push(child);
+      afterMutation();
+      selectedId.value = child.id;
+      nextTick(() => startEditLabel(child.id));
+    }
+
+    function collectSubtreeIds(nodeId) {
+      const ids = new Set([nodeId]);
+      let frontier = [nodeId];
+      while (frontier.length) {
+        const next = [];
+        for (const id of frontier) {
+          for (const child of childrenOf(id)) { ids.add(child.id); next.push(child.id); }
+        }
+        frontier = next;
+      }
+      return ids;
+    }
+
+    function handleDeleteClick(nodeId) {
+      if (deleteConfirmId.value === nodeId) {
+        deleteNode(nodeId);
+        return;
+      }
+      deleteConfirmId.value = nodeId;
+      setTimeout(() => { if (deleteConfirmId.value === nodeId) deleteConfirmId.value = null; }, 3000);
+    }
+
+    function deleteNode(nodeId) {
+      const toRemove = collectSubtreeIds(nodeId);
+      nodes.value = nodes.value.filter(n => !toRemove.has(n.id));
+      extraEdges.value = extraEdges.value.filter(e => !toRemove.has(e.from) && !toRemove.has(e.to));
+      if (selectedId.value && toRemove.has(selectedId.value)) selectedId.value = null;
+      deleteConfirmId.value = null;
+      afterMutation();
+    }
+
+    // ── Nuevo árbol (borra nodos y flechas, deja la ecuación como está) ──
+    const newTreeConfirm = ref(false);
+    function handleNewTreeClick() {
+      if (newTreeConfirm.value) {
+        resetTree();
+        return;
+      }
+      newTreeConfirm.value = true;
+      setTimeout(() => { newTreeConfirm.value = false; }, 3000);
+    }
+    function resetTree() {
+      nodes.value = [];
+      extraEdges.value = [];
+      selectedId.value = null;
+      selectedEdgeId.value = null;
+      editingId.value = null;
+      connectingFromId.value = null;
+      deleteConfirmId.value = null;
+      newTreeConfirm.value = false;
+      userAdjustedCamera.value = false;
+      persist();
+      draw();
+    }
+
+    // ── Conectar (DAG: flechas extra entre nodos existentes) ──
+    function startConnecting(nodeId) {
+      connectingFromId.value = connectingFromId.value === nodeId ? null : nodeId;
+    }
+    function cancelConnecting() { connectingFromId.value = null; }
+    function tryConnect(targetId) {
+      const fromId = connectingFromId.value;
+      connectingFromId.value = null;
+      if (!fromId || fromId === targetId) return;
+      const exists = extraEdges.value.some(e => e.from === fromId && e.to === targetId);
+      if (exists) return;
+      extraEdges.value.push({ id: makeId(), from: fromId, to: targetId });
+      persist();
+      draw();
+    }
+    function deleteExtraEdge(edgeId) {
+      extraEdges.value = extraEdges.value.filter(e => e.id !== edgeId);
+      selectedEdgeId.value = null;
+      persist();
+      draw();
+    }
+
+    // ── Edición de etiqueta ──
+    function startEditLabel(nodeId) {
+      const node = nodes.value.find(n => n.id === nodeId);
+      if (!node) return;
+      editingId.value = nodeId;
+      editingLabel.value = node.label;
+      nextTick(() => { labelInputEl.value?.focus(); labelInputEl.value?.select(); });
+    }
+    function confirmEditLabel() {
+      if (!editingId.value) return;
+      const node = nodes.value.find(n => n.id === editingId.value);
+      if (node) node.label = editingLabel.value.trim() || node.label;
+      editingId.value = null;
+      persist();
+      draw();
+    }
+    function cancelEditLabel() { editingId.value = null; }
+
+    // ── Ecuación de recurrencia (LaTeX, renderizado manual con KaTeX) ──
+    function toggleEquation() {
+      showEquation.value = !showEquation.value;
+      persist();
+      if (showEquation.value) nextTick(renderEquation);
+    }
+    function renderEquation() {
+      if (!equationBoxEl.value) return;
+      if (!equationSource.value.trim()) { equationBoxEl.value.innerHTML = ''; persist(); return; }
+      try {
+        katex.render(equationSource.value, equationBoxEl.value, { throwOnError: true, displayMode: true });
+      } catch (err) {
+        console.error('LaTeX inválido en la ecuación:', err);
+        equationBoxEl.value.innerHTML = '';
+      }
+      persist();
+    }
+
+    // ── Layout: ancho de subárbol proporcional a cantidad de hojas ──
+    function countLeaves(nodeId) {
+      const kids = childrenOf(nodeId);
+      if (!kids.length) return 1;
+      return kids.reduce((sum, k) => sum + countLeaves(k.id), 0);
+    }
+    function assign(node, slotStart, slotEnd, depth) {
+      node.depth = depth;
+      node.y = depth * LEVEL_HEIGHT;
+      node.x = (slotStart + slotEnd) / 2 * NODE_SPACING_X;
+      let cursor = slotStart;
+      for (const child of childrenOf(node.id)) {
+        const span = countLeaves(child.id);
+        assign(child, cursor, cursor + span, depth + 1);
+        cursor += span;
+      }
+    }
+    function computeLayout() {
+      const root = nodes.value.find(n => n.parentId === null);
+      if (!root) return;
+      assign(root, 0, countLeaves(root.id), 0);
+    }
+
+    function afterMutation() {
+      computeLayout();
+      persist();
+      if (!userAdjustedCamera.value) fitToView();
+      draw();
+    }
+
+    // ── Cámara: pan / zoom ──
+    function worldToScreen(x, y) {
+      return { x: x * camera.scale + camera.offsetX, y: y * camera.scale + camera.offsetY };
+    }
+    function screenToWorld(x, y) {
+      return { x: (x - camera.offsetX) / camera.scale, y: (y - camera.offsetY) / camera.scale };
+    }
+
+    function fitToView(manual) {
+      if (!nodes.value.length || !containerEl.value) return;
+      const xs = nodes.value.map(n => n.x), ys = nodes.value.map(n => n.y);
+      const minX = Math.min(...xs) - NODE_W, maxX = Math.max(...xs) + NODE_W;
+      const minY = Math.min(...ys) - NODE_H, maxY = Math.max(...ys) + NODE_H;
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const contentW = Math.max(maxX - minX, 1), contentH = Math.max(maxY - minY, 1);
+      camera.scale = Math.min((w - PADDING * 2) / contentW, (h - PADDING * 2) / contentH, 1.4);
+      camera.offsetX = w / 2 - (minX + maxX) / 2 * camera.scale;
+      camera.offsetY = PADDING - minY * camera.scale;
+      if (manual) userAdjustedCamera.value = false;
+      draw();
+    }
+
+    let isPanning = false, panStart = null, didPan = false;
+    function onCanvasMouseDown(e) {
+      if (hitTestNode(e.offsetX, e.offsetY)) return;
+      isPanning = true;
+      didPan = false;
+      panStart = { x: e.offsetX, y: e.offsetY, offsetX: camera.offsetX, offsetY: camera.offsetY };
+      canvasEl.value.style.cursor = 'grabbing';
+    }
+    function onCanvasMouseMove(e) {
+      if (!isPanning) return;
+      const dx = e.offsetX - panStart.x, dy = e.offsetY - panStart.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didPan = true;
+      camera.offsetX = panStart.offsetX + dx;
+      camera.offsetY = panStart.offsetY + dy;
+      if (didPan) userAdjustedCamera.value = true;
+      draw();
+    }
+    function onCanvasMouseUp() {
+      isPanning = false;
+      if (canvasEl.value) canvasEl.value.style.cursor = 'grab';
+    }
+
+    function onCanvasWheel(e) {
+      const rect = canvasEl.value.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const before = screenToWorld(mx, my);
+      camera.scale = Math.min(3, Math.max(0.2, camera.scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+      const after = worldToScreen(before.x, before.y);
+      camera.offsetX += mx - after.x;
+      camera.offsetY += my - after.y;
+      userAdjustedCamera.value = true;
+      draw();
+    }
+
+    function hitTestNode(sx, sy) {
+      for (let i = nodes.value.length - 1; i >= 0; i--) {
+        const n = nodes.value[i];
+        const p = worldToScreen(n.x, n.y);
+        const w = NODE_W * camera.scale / 2, h = NODE_H * camera.scale / 2;
+        if (sx >= p.x - w && sx <= p.x + w && sy >= p.y - h && sy <= p.y + h) return n;
+      }
+      return null;
+    }
+
+    function hitTestEdge(sx, sy) {
+      const THRESHOLD = 8, STEPS = 24;
+      for (let i = extraEdges.value.length - 1; i >= 0; i--) {
+        const e = extraEdges.value[i];
+        const from = nodes.value.find(n => n.id === e.from);
+        const to = nodes.value.find(n => n.id === e.to);
+        if (!from || !to) continue;
+        const c = curveForEdge(from, to);
+        for (let s = 0; s <= STEPS; s++) {
+          const pt = pointOnQuadratic(c, s / STEPS);
+          if (Math.hypot(pt.x - sx, pt.y - sy) <= THRESHOLD) return e;
+        }
+      }
+      return null;
+    }
+
+    function onCanvasClick(e) {
+      if (didPan) { didPan = false; return; }
+      const hitNode = hitTestNode(e.offsetX, e.offsetY);
+      if (hitNode) {
+        if (connectingFromId.value) { tryConnect(hitNode.id); return; }
+        selectedId.value = hitNode.id;
+        selectedEdgeId.value = null;
+        deleteConfirmId.value = null;
+        return;
+      }
+      if (connectingFromId.value) { cancelConnecting(); return; }
+      const hitEdge = hitTestEdge(e.offsetX, e.offsetY);
+      if (hitEdge) {
+        selectedEdgeId.value = hitEdge.id;
+        selectedId.value = null;
+        return;
+      }
+      selectedId.value = null;
+      selectedEdgeId.value = null;
+      deleteConfirmId.value = null;
+    }
+
+    function handleGlobalKeydown(e) {
+      if (e.key !== 'Escape') return;
+      if (connectingFromId.value) cancelConnecting();
+      if (editingId.value) cancelEditLabel();
+      if (selectedEdgeId.value) selectedEdgeId.value = null;
+    }
+
+    // ── Paletas de color por tema (Canvas no puede leer var(--bs-*)) ──
+    const PALETTES = {
+      light: {
+        bandTop: [227, 242, 253], bandBottom: [255, 255, 255], bg: '#ffffff',
+        nodeFill: '#ffffff', nodeStroke: '#495057', nodeText: '#212529',
+        edge: '#495057', extraEdge: '#0d6efd', selected: '#198754', connecting: '#ffc107',
+        bandLabel: '#6c757d',
+      },
+      dark: {
+        bandTop: [13, 42, 74], bandBottom: [33, 37, 41], bg: '#212529',
+        nodeFill: '#2b3035', nodeStroke: '#adb5bd', nodeText: '#f8f9fa',
+        edge: '#adb5bd', extraEdge: '#6ea8fe', selected: '#75b798', connecting: '#ffda6a',
+        bandLabel: '#adb5bd',
+      },
+    };
+    function palette() { return PALETTES[isDark.value ? 'dark' : 'light']; }
+    function lerpColor(c1, c2, t) {
+      return `rgb(${Math.round(c1[0] + (c2[0] - c1[0]) * t)}, ${Math.round(c1[1] + (c2[1] - c1[1]) * t)}, ${Math.round(c1[2] + (c2[2] - c1[2]) * t)})`;
+    }
+
+    function resizeCanvasToDisplaySize() {
+      const canvas = canvasEl.value, container = containerEl.value;
+      if (!canvas || !container) return;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = container.clientWidth * dpr;
+      canvas.height = container.clientHeight * dpr;
+      canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function roundedRectPath(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.arcTo(x + w, y, x + w, y + r, r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+      ctx.lineTo(x + r, y + h);
+      ctx.arcTo(x, y + h, x, y + h - r, r);
+      ctx.lineTo(x, y + r);
+      ctx.arcTo(x, y, x + r, y, r);
+      ctx.closePath();
+    }
+
+    function drawArrowhead(ctx, x, y, angle) {
+      const headLen = 8;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - headLen * Math.cos(angle - Math.PI / 6), y - headLen * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(x - headLen * Math.cos(angle + Math.PI / 6), y - headLen * Math.sin(angle + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawArrow(ctx, x1, y1, x2, y2, color, lineWidth) {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      drawArrowhead(ctx, x2, y2, Math.atan2(y2 - y1, x2 - x1));
+      ctx.restore();
+    }
+
+    // Punto sobre el borde de la elipse inscripta en un nodo, en la dirección de "hacia" (hacia afuera del nodo).
+    function ellipseBorderPoint(cx, cy, rx, ry, towardX, towardY) {
+      const dx = towardX - cx, dy = towardY - cy;
+      const dist = Math.hypot(dx, dy) || 1;
+      const ux = dx / dist, uy = dy / dist;
+      const denom = Math.sqrt((ux * ux) / (rx * rx) + (uy * uy) / (ry * ry)) || 1;
+      const t = 1 / denom;
+      return { x: cx + ux * t, y: cy + uy * t };
+    }
+
+    // Flechas extra (DAG): curva cuadrática en vez de línea recta, para no atravesar
+    // los nodos que queden en el medio del camino directo entre origen y destino,
+    // y terminan justo afuera del borde de cada nodo (no en su centro) para que la
+    // flecha se vea completa en vez de quedar tapada por el nodo.
+    function curveForEdge(fromNode, toNode) {
+      const p1 = worldToScreen(fromNode.x, fromNode.y), p2 = worldToScreen(toNode.x, toNode.y);
+      const dx = p2.x - p1.x, dy = p2.y - p1.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const nx = -dy / dist, ny = dx / dist;
+      const bow = dist * 0.28;
+      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+      const cx = mx + nx * bow, cy = my + ny * bow;
+
+      const rx = NODE_W * camera.scale / 2, ry = NODE_H * camera.scale / 2;
+      const start = ellipseBorderPoint(p1.x, p1.y, rx, ry, cx, cy);
+      const end = ellipseBorderPoint(p2.x, p2.y, rx, ry, cx, cy);
+      return { x1: start.x, y1: start.y, cx, cy, x2: end.x, y2: end.y };
+    }
+    function pointOnQuadratic(c, t) {
+      const u = 1 - t;
+      return {
+        x: u * u * c.x1 + 2 * u * t * c.cx + t * t * c.x2,
+        y: u * u * c.y1 + 2 * u * t * c.cy + t * t * c.y2,
+      };
+    }
+    function drawCurvedArrow(ctx, c, color, lineWidth) {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(c.x1, c.y1);
+      ctx.quadraticCurveTo(c.cx, c.cy, c.x2, c.y2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      drawArrowhead(ctx, c.x2, c.y2, Math.atan2(c.y2 - c.cy, c.x2 - c.cx));
+      ctx.restore();
+    }
+
+    function treeEdgeEndpoints(parent, child) {
+      const p1 = worldToScreen(parent.x, parent.y), p2 = worldToScreen(child.x, child.y);
+      const halfH = NODE_H * camera.scale / 2;
+      return { x1: p1.x, y1: p1.y + halfH, x2: p2.x, y2: p2.y - halfH };
+    }
+
+    function draw() {
+      const canvas = canvasEl.value;
+      if (!canvas || !containerEl.value) return;
+      const ctx = canvas.getContext('2d');
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const pal = palette();
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = pal.bg;
+      ctx.fillRect(0, 0, w, h);
+
+      const maxDepth = nodes.value.reduce((m, n) => Math.max(m, n.depth), 0);
+      const countsByDepth = {};
+      for (const n of nodes.value) countsByDepth[n.depth] = (countsByDepth[n.depth] || 0) + 1;
+
+      for (let d = 0; d <= maxDepth; d++) {
+        const yTop = worldToScreen(0, d * LEVEL_HEIGHT - LEVEL_HEIGHT / 2).y;
+        const yBottom = worldToScreen(0, d * LEVEL_HEIGHT + LEVEL_HEIGHT / 2).y;
+        const yMid = (yTop + yBottom) / 2;
+        ctx.fillStyle = lerpColor(pal.bandTop, pal.bandBottom, maxDepth === 0 ? 0 : d / maxDepth);
+        ctx.fillRect(0, yTop, w, yBottom - yTop);
+
+        const count = countsByDepth[d] || 0;
+        ctx.fillStyle = pal.bandLabel;
+        ctx.textAlign = 'left';
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(`Nivel ${d}`, 12, yMid - 2);
+        ctx.font = '11px system-ui, sans-serif';
+        ctx.textBaseline = 'hanging';
+        ctx.fillText(`${count} nodo${count === 1 ? '' : 's'}`, 12, yMid + 2);
+      }
+
+      for (const n of nodes.value) {
+        if (n.parentId == null) continue;
+        const parent = nodes.value.find(p => p.id === n.parentId);
+        if (!parent) continue;
+        const { x1, y1, x2, y2 } = treeEdgeEndpoints(parent, n);
+        drawArrow(ctx, x1, y1, x2, y2, pal.edge, 1.5);
+      }
+
+      for (const n of nodes.value) {
+        const p = worldToScreen(n.x, n.y);
+        const nw = NODE_W * camera.scale, nh = NODE_H * camera.scale;
+        roundedRectPath(ctx, p.x - nw / 2, p.y - nh / 2, nw, nh, 8 * camera.scale);
+        ctx.fillStyle = pal.nodeFill;
+        ctx.fill();
+        const isSelected = n.id === selectedId.value, isConnecting = n.id === connectingFromId.value;
+        ctx.lineWidth = (isSelected || isConnecting) ? 3 : 1.5;
+        ctx.strokeStyle = isSelected ? pal.selected : (isConnecting ? pal.connecting : pal.nodeStroke);
+        ctx.stroke();
+
+        ctx.fillStyle = pal.nodeText;
+        ctx.font = `${Math.max(10, 13 * camera.scale)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(n.label, p.x, p.y, nw - 10);
+      }
+
+      // Flechas extra (DAG) se dibujan por encima de los nodos: quedan "por fuera",
+      // completas y visibles, en vez de ocultas debajo del nodo destino.
+      for (const e of extraEdges.value) {
+        const from = nodes.value.find(n => n.id === e.from);
+        const to = nodes.value.find(n => n.id === e.to);
+        if (!from || !to) continue;
+        const isSelected = e.id === selectedEdgeId.value;
+        drawCurvedArrow(ctx, curveForEdge(from, to), isSelected ? pal.selected : pal.extraEdge, isSelected ? 2.5 : 1.5);
+      }
+    }
+
+    // ── Posición de overlays HTML (toolbar / input de edición) ──
+    const toolbarStyle = computed(() => {
+      const n = nodes.value.find(x => x.id === selectedId.value);
+      if (!n) return {};
+      const p = worldToScreen(n.x, n.y);
+      return { left: p.x + 'px', top: (p.y - NODE_H * camera.scale / 2) + 'px' };
+    });
+    const editorStyle = computed(() => {
+      const n = nodes.value.find(x => x.id === editingId.value);
+      if (!n) return {};
+      const p = worldToScreen(n.x, n.y);
+      return { left: p.x + 'px', top: p.y + 'px', width: Math.max(60, NODE_W * camera.scale - 8) + 'px' };
+    });
+    const edgeToolbarStyle = computed(() => {
+      const e = extraEdges.value.find(x => x.id === selectedEdgeId.value);
+      if (!e) return {};
+      const from = nodes.value.find(n => n.id === e.from), to = nodes.value.find(n => n.id === e.to);
+      if (!from || !to) return {};
+      const c = curveForEdge(from, to);
+      return { left: c.cx + 'px', top: c.cy + 'px' };
+    });
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+      draw();
+    }
+
+    // ── Ciclo de vida ──
+    function handleWindowResize() {
+      resizeCanvasToDisplaySize();
+      if (!userAdjustedCamera.value) fitToView();
+      draw();
+    }
+
+    onMounted(() => {
+      loadInitialState();
+      computeLayout();
+      resizeCanvasToDisplaySize();
+      fitToView();
+      draw();
+      nextTick(renderEquation);
+      window.addEventListener('resize', handleWindowResize);
+      window.addEventListener('keydown', handleGlobalKeydown);
+    });
+    onBeforeUnmount(() => {
+      window.removeEventListener('resize', handleWindowResize);
+      window.removeEventListener('keydown', handleGlobalKeydown);
+    });
+
+    return {
+      nodes, selectedId, editingId, editingLabel, connectingFromId, deleteConfirmId, selectedEdgeId,
+      rootLabelInput, canvasEl, containerEl, labelInputEl, equationBoxEl, isDark, newTreeConfirm,
+      showEquation, equationSource, toggleEquation, renderEquation, handleNewTreeClick,
+      shareCopied, shareCurrentDiagram,
+      handleCreateRoot, addChild, handleDeleteClick, startConnecting, startEditLabel,
+      confirmEditLabel, cancelEditLabel, deleteExtraEdge, toggleTheme, fitToView,
+      onCanvasMouseDown, onCanvasMouseMove, onCanvasMouseUp, onCanvasWheel, onCanvasClick,
+      toolbarStyle, editorStyle, edgeToolbarStyle,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
