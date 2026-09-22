@@ -2,7 +2,7 @@
 
 Visualizaciones interactivas para enseñar Programación Avanzada. Cada visualización es un único archivo `.html` autocontenido: sin build, sin instalación, se abre en el navegador o se sirve como archivo estático.
 
-[`index.html`](index.html) es la portada: lista todas las herramientas agrupadas por tema. Al agregar una herramienta nueva, sumarla ahí además de en la tabla de abajo (ver checklist en [CLAUDE.md](CLAUDE.md)).
+[`index.html`](index.html) es la portada: lista todas las herramientas agrupadas por tema. Al agregar una herramienta nueva, sumarla ahí además de en la tabla de abajo (ver checklist en [AGENTS.md](AGENTS.md)).
 
 ## Visualizaciones disponibles
 
@@ -41,6 +41,21 @@ Permite:
 - Autoguardado en el navegador (localStorage) y modo claro/oscuro, igual que el resto de las herramientas.
 - Botón "🔗 Compartir": copia un link que incluye todo el diagrama (árbol, flechas y ecuación) codificado en la URL — al abrirlo carga ese diagrama directamente, sin backend ni servidor intermedio.
 
+### Grafos
+
+| Archivo | Tema | Complejidad |
+|---|---|---|
+| [`grafos/dfs.html`](grafos/dfs.html) | DFS — Recorrido en Profundidad (pila explícita) | O(V+E) |
+| [`grafos/bfs.html`](grafos/bfs.html) | BFS — Recorrido en Anchura (cola + array de distancias) | O(V+E) |
+
+Ambas permiten:
+- Cargar cualquier grafo no dirigido escribiendo su lista de aristas (`A-B`, una por línea o separadas por coma; un token sin guion declara un nodo aislado); el orden de las aristas define el orden de exploración de los vecinos.
+- Elegir el nodo inicial con un selector, y recorrer el algoritmo paso a paso (manual, con autoplay a velocidad ajustable, o reiniciando la animación sin perder el grafo cargado).
+- Ver en todo momento la estructura de datos del algoritmo (pila en DFS, cola + array de distancias en BFS), el pseudocódigo con la línea actual resaltada, y una explicación en lenguaje llano de cada paso.
+- Distinguir por color los nodos no visitados / pendientes / actual / ya procesados, y las aristas de árbol (llevaron a un nodo nuevo) de las descartadas (llevan a uno ya visitado) — clasificación que queda fija una vez que la arista se examina. BFS además muestra la distancia (en saltos) desde el nodo inicial junto a cada nodo descubierto.
+- Arrastrar los nodos para destrabar cruces de aristas.
+- Autoguardado en el navegador (localStorage), modo claro/oscuro, botón "🆕 Nuevo" y "🔗 Compartir" (grafo + posiciones + nodo inicial codificados en la URL), igual que el resto de las herramientas.
+
 ## Cómo usarlas
 
 Abrir el `.html` directamente en el navegador, o servirlas localmente:
@@ -54,6 +69,6 @@ make serve   # sirve el directorio en http://localhost:4000 (PORT=xxxx para camb
 - **Bootstrap 5.3.3** — layout y componentes UI.
 - **Vue 3** (`vue.global.js`, Composition API) — estado reactivo e interacción.
 - **KaTeX 0.16.10** — renderizado de fórmulas matemáticas.
-- **Canvas 2D** — dibujo imperativo del diagrama en `recursion/call-tree.html`.
+- **Canvas 2D** — dibujo imperativo del diagrama en `recursion/call-tree.html` y `grafos/dfs.html`.
 
-Ver [CLAUDE.md](CLAUDE.md) para la convención/plantilla que siguen estos archivos y las guías para crear visualizaciones nuevas.
+Ver [AGENTS.md](AGENTS.md) para la convención/plantilla que siguen estos archivos y las guías para crear visualizaciones nuevas.

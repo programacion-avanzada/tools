@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BFS — Recorrido en Anchura</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .main-row { flex: 1 1 auto; display: flex; min-height: 0; }
+    .canvas-wrap { flex: 2 1 0; position: relative; overflow: hidden; min-width: 0; }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    .code-panel { flex: 1 1 0; overflow-y: auto; border-left: 1px solid var(--bs-border-color); min-width: 280px; }
+    .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
+    .empty-state-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .stack-panel { position: absolute; top: .75rem; left: .75rem; width: 150px; max-height: 45%; overflow-y: auto; }
+    .visited-panel { position: absolute; top: .75rem; right: .75rem; width: 220px; max-height: 45%; overflow-y: auto; }
+    .editor-panel { position: absolute; bottom: .75rem; left: .75rem; width: 340px; }
+    .pseudo-code { font-family: Consolas, monospace; font-size: .82rem; white-space: pre; padding: .5rem 0; }
+    .pseudo-line { padding: .1rem .75rem; }
+    .pseudo-active { background: var(--bs-warning-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    @media (max-width: 768px) {
+      .main-row { flex-direction: column; }
+      .canvas-wrap { flex: 1 1 55%; }
+      .code-panel { flex: 1 1 45%; border-left: none; border-top: 1px solid var(--bs-border-color); }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand mb-0 h5">🌊 BFS — Recorrido en Anchura</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">Grafos · O(V+E)</span>
+      <select class="form-select form-select-sm" style="width:auto" v-if="nodes.length"
+        v-model="startId" @change="onStartChange" title="Nodo inicial">
+        <option v-for="n in nodes" :key="n.label" :value="n.label">Inicio: {{ n.label }}</option>
+      </select>
+      <div class="btn-group btn-group-sm" v-if="nodes.length">
+        <button class="btn btn-outline-light" @click="restartAnimation" title="Reiniciar animación (mismo grafo)">⏮</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente">⏩</button>
+      </div>
+      <input v-if="nodes.length" type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
+        v-model.number="speedMs" title="Velocidad de reproducción" />
+      <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="showEditor = !showEditor" title="Editar el grafo">✏️ Editar grafo</button>
+      <button class="btn btn-sm btn-outline-light" @click="fitToView(true)" title="Ajustar vista" v-if="nodes.length">🎯</button>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver al grafo de ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir este grafo">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="main-row">
+    <div class="canvas-wrap" ref="containerEl">
+      <canvas
+        ref="canvasEl"
+        @mousedown="onCanvasMouseDown"
+        @mousemove="onCanvasMouseMove"
+        @mouseup="onCanvasMouseUp"
+        @mouseleave="onCanvasMouseUp"
+        @wheel.prevent="onCanvasWheel"
+      ></canvas>
+
+      <div class="empty-state-overlay" v-if="!nodes.length">
+        <div class="card shadow-sm" style="max-width: 380px;">
+          <div class="card-body text-center">
+            <div class="fs-1">🌊</div>
+            <p class="mt-2 mb-0 text-muted">Cargá un grafo con "✏️ Editar grafo" para empezar.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm stack-panel" v-if="nodes.length">
+        <div class="card-header py-1 px-2 small fw-semibold">📥 Cola</div>
+        <ul class="list-group list-group-flush small">
+          <li class="list-group-item py-1 px-2 text-muted" v-if="!currentStep || !currentStep.queue.length">(vacía)</li>
+          <li class="list-group-item py-1 px-2 d-flex justify-content-between align-items-center"
+            v-for="(label, idx) in (currentStep ? currentStep.queue : [])" :key="idx">
+            {{ label }} <span class="badge bg-primary" v-if="idx === 0">frente</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="card shadow-sm visited-panel" v-if="nodes.length">
+        <div class="card-header py-1 px-2 small fw-semibold">📏 Distancias</div>
+        <div class="card-body p-2" style="overflow-x: auto;">
+          <table class="table table-sm table-bordered text-center mb-0" style="width: auto;">
+            <thead>
+              <tr><th class="dp-header-cell px-2 py-1" v-for="n in nodes" :key="n.label">{{ n.label }}</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="px-2 py-1" v-for="n in nodes" :key="n.label"
+                  :class="currentStep && currentStep.distances[n.label] !== Infinity ? 'table-success' : ''">
+                  {{ currentStep && currentStep.distances[n.label] !== Infinity ? currentStep.distances[n.label] : '∞' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card shadow-sm editor-panel" v-if="showEditor">
+        <div class="card-body p-2">
+          <label class="form-label small text-muted mb-1">
+            Aristas, una por línea o separadas por coma: <code>A-B</code>. Nodo aislado: <code>G</code>.
+          </label>
+          <textarea class="form-control form-control-sm mb-2" rows="6" v-model="graphTextDraft" style="font-family: monospace"></textarea>
+          <button class="btn btn-dark btn-sm w-100" @click="applyGraphText">▶ Aplicar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-panel">
+      <div class="p-3">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">💻 Pseudocódigo</div>
+          <div class="card-body p-0">
+            <div class="pseudo-code">
+              <div v-for="(line, idx) in PSEUDOCODE" :key="idx" class="pseudo-line"
+                :class="{ 'pseudo-active': currentStep && currentStep.activeLines.includes(idx) }">{{ line }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">🔍 Explicación</div>
+          <div class="card-body">
+            <p class="text-muted text-center py-3 mb-0" v-if="!currentStep">Cargá un grafo y presioná ▶️ o "Paso siguiente" para empezar.</p>
+            <div v-else>
+              <span class="badge fs-6" :class="currentStep.badge.cls">{{ currentStep.badge.icon }} {{ currentStep.badge.text }}</span>
+              <p class="small text-muted mt-3 mb-0">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header fw-semibold">Leyenda</div>
+          <ul class="list-group list-group-flush small">
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-secondary">&nbsp;&nbsp;</span> No descubierto (distancia ∞)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-primary">&nbsp;&nbsp;</span> En cola (pendiente de procesar)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-warning text-dark">&nbsp;&nbsp;</span> Actual (procesándose ahora)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-success">&nbsp;&nbsp;</span> Procesado</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-success">&nbsp;&nbsp;</span> Arista de árbol (asignó distancia nueva)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-danger">&nbsp;&nbsp;</span> Arista descartada (vecino ya tenía distancia)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar text-center small border-top">
+    <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } = Vue;
+
+const PSEUDOCODE = [
+  'ALGORITMO BFS(grafo, inicio)',
+  '    cola ← nueva Cola vacía',
+  '    distancias ← array de tamaño V, todo en ∞',
+  '    distancias[inicio] ← 0',
+  '    Encolar(cola, inicio)',
+  '    MIENTRAS NOT EstaVacia(cola) HACER',
+  '        v ← Desencolar(cola)',
+  '        Procesar(v)',
+  '        PARA CADA vecino EN Adyacentes(grafo, v) HACER',
+  '            SI distancias[vecino] = ∞ ENTONCES',
+  '                distancias[vecino] ← distancias[v] + 1',
+  '                Encolar(cola, vecino)',
+];
+
+const DEFAULT_GRAPH_TEXT = 'A-B\nA-C\nB-D\nC-D\nD-E\nE-F';
+
+function edgeKey(a, b) { return [a, b].sort().join('|'); }
+
+// ── Parseo del grafo: "A-B" declara una arista, "G" sola declara un nodo aislado.
+// El orden en que aparecen las aristas en el texto define el orden de Adyacentes(grafo, v).
+function parseGraphText(text) {
+  const tokens = text.split(/[\n,]/).map(t => t.trim()).filter(Boolean);
+  const nodeLabels = [];
+  const nodeSet = new Set();
+  const edgeSet = new Set();
+  const edges = [];
+  function addNode(label) {
+    if (!nodeSet.has(label)) { nodeSet.add(label); nodeLabels.push(label); }
+  }
+  for (const tok of tokens) {
+    const parts = tok.split('-').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const [a, b] = parts;
+      addNode(a); addNode(b);
+      if (a === b) continue;
+      const key = edgeKey(a, b);
+      if (!edgeSet.has(key)) { edgeSet.add(key); edges.push({ a, b, key }); }
+    } else if (parts.length === 1) {
+      addNode(parts[0]);
+    }
+  }
+  return { nodeLabels, edges };
+}
+
+function buildAdjacency(nodeLabels, edges) {
+  const adj = new Map();
+  for (const label of nodeLabels) adj.set(label, []);
+  for (const { a, b } of edges) {
+    adj.get(a).push(b);
+    adj.get(b).push(a);
+  }
+  return adj;
+}
+
+// ── Simula el pseudocódigo con una cola FIFO y un array de distancias reales;
+// un snapshot por cada punto de parada didáctico. Una arista queda clasificada
+// 'tree'/'discard' la primera vez que se examina y esa clasificación ya no cambia.
+function computeSteps(adjacency, nodeLabels, startId) {
+  const steps = [];
+  if (!startId || !adjacency.has(startId)) return steps;
+
+  const queue = [];
+  const distances = {};
+  for (const label of nodeLabels) distances[label] = Infinity;
+  const processed = new Set();
+  const edgeCls = {};
+  let current = null;
+
+  function snapshot(activeLines, badge, highlightEdge) {
+    steps.push({
+      activeLines,
+      queue: [...queue],
+      distances: { ...distances },
+      processed: [...processed],
+      current,
+      edgeCls: { ...edgeCls },
+      highlightEdge: highlightEdge || null,
+      badge,
+    });
+  }
+
+  snapshot([1, 2], { icon: '🏗️', text: 'Se crea la cola vacía y el array de distancias, todo en ∞.', cls: 'bg-secondary' });
+
+  distances[startId] = 0;
+  queue.push(startId);
+  snapshot([3, 4], { icon: '➕', text: `Se asigna distancia 0 a "${startId}" y se encola.`, cls: 'bg-primary' });
+
+  while (queue.length) {
+    snapshot([5], { icon: '🔁', text: `La cola no está vacía (${queue.length} elemento${queue.length === 1 ? '' : 's'}): seguimos.`, cls: 'bg-secondary' });
+
+    current = queue.shift();
+    snapshot([6], { icon: '📤', text: `Se desencola v = "${current}".`, cls: 'bg-warning text-dark' });
+    snapshot([7], { icon: '⚙️', text: `Se procesa el nodo "${current}".`, cls: 'bg-warning text-dark' });
+
+    for (const nb of adjacency.get(current) || []) {
+      const key = edgeKey(current, nb);
+      if (distances[nb] !== Infinity) {
+        if (edgeCls[key] === undefined) edgeCls[key] = 'discard';
+        snapshot([8, 9], { icon: '🚫', text: `El vecino "${nb}" ya tiene distancia asignada (${distances[nb]}) → se descarta la arista.`, cls: 'bg-danger' }, key);
+      } else {
+        edgeCls[key] = 'tree';
+        snapshot([8, 9], { icon: '👀', text: `El vecino "${nb}" todavía no tiene distancia asignada.`, cls: 'bg-primary' }, key);
+        distances[nb] = distances[current] + 1;
+        queue.push(nb);
+        snapshot([10, 11], { icon: '📥', text: `Se asigna distancia ${distances[nb]} a "${nb}" y se encola.`, cls: 'bg-success' }, key);
+      }
+    }
+    processed.add(current);
+  }
+  current = null;
+  snapshot([5], { icon: '🏁', text: 'La cola quedó vacía: el recorrido BFS terminó.', cls: 'bg-success' });
+  return steps;
+}
+
+// ── Layout inicial circular: los nodos que ya tenían posición la conservan,
+// los nuevos se ubican en círculo según su índice en la lista total de nodos.
+function layoutNodes(nodeLabels, existingPositions) {
+  const R = 220;
+  const positions = {};
+  nodeLabels.forEach((label, i) => {
+    if (existingPositions[label]) { positions[label] = existingPositions[label]; return; }
+    const angle = (i / nodeLabels.length) * Math.PI * 2 - Math.PI / 2;
+    positions[label] = { x: Math.cos(angle) * R, y: Math.sin(angle) * R };
+  });
+  return positions;
+}
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-grafos-bfs';
+    const NODE_R = 24;
+    const PADDING = 80;
+
+    const nodes = ref([]);
+    const edges = ref([]);
+    let adjacencyMap = new Map();
+
+    const startId = ref('');
+    const steps = ref([]);
+    const currentStepIndex = ref(0);
+    const isPlaying = ref(false);
+    const speedMs = ref(700);
+    let playTimer = null;
+
+    const showEditor = ref(false);
+    const graphTextDraft = ref(DEFAULT_GRAPH_TEXT);
+
+    const camera = reactive({ offsetX: 0, offsetY: 0, scale: 1 });
+    const userAdjustedCamera = ref(false);
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+
+    const canvasEl = ref(null);
+    const containerEl = ref(null);
+
+    const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
+    const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
+
+    // ── Persistencia ──
+    function positionsMap() {
+      const m = {};
+      for (const n of nodes.value) m[n.label] = { x: n.x, y: n.y };
+      return m;
+    }
+    function currentState() {
+      return { graphText: graphTextDraft.value, positions: positionsMap(), startId: startId.value };
+    }
+    function applyState(data) {
+      graphTextDraft.value = data.graphText ?? graphTextDraft.value;
+      const { nodeLabels, edges: parsedEdges } = parseGraphText(graphTextDraft.value);
+      const posMap = layoutNodes(nodeLabels, data.positions || {});
+      nodes.value = nodeLabels.map(label => ({ label, x: posMap[label].x, y: posMap[label].y }));
+      edges.value = parsedEdges;
+      adjacencyMap = buildAdjacency(nodeLabels, parsedEdges);
+      startId.value = (data.startId && nodeLabels.includes(data.startId)) ? data.startId : (nodeLabels[0] || '');
+      regenerateSteps();
+    }
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
+    }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) { resetToDefault(); return; }
+        applyState(JSON.parse(raw));
+      } catch (e) { resetToDefault(); }
+    }
+
+    // ── Compartir por URL (#d=...) ──
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer el grafo de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo" (2 pasos) ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      newConfirm.value = false;
+      applyState({ graphText: DEFAULT_GRAPH_TEXT, positions: {}, startId: 'A' });
+      persist();
+      userAdjustedCamera.value = false;
+      nextTick(() => { resizeCanvasToDisplaySize(); fitToView(); });
+    }
+
+    // ── Editar grafo ──
+    function applyGraphText() {
+      applyState({ graphText: graphTextDraft.value, positions: positionsMap(), startId: startId.value });
+      persist();
+      userAdjustedCamera.value = false;
+      nextTick(() => { resizeCanvasToDisplaySize(); fitToView(); });
+    }
+    function onStartChange() {
+      regenerateSteps();
+      persist();
+      draw();
+    }
+
+    // ── Reproducción ──
+    function regenerateSteps() {
+      const labels = nodes.value.map(n => n.label);
+      steps.value = computeSteps(adjacencyMap, labels, startId.value);
+      currentStepIndex.value = 0;
+      stopAutoplay();
+      draw();
+    }
+    function goToStep(i) {
+      currentStepIndex.value = Math.max(0, Math.min(steps.value.length - 1, i));
+      draw();
+    }
+    function stepForward() { if (!isAtEnd.value) goToStep(currentStepIndex.value + 1); else stopAutoplay(); }
+    function stepBackward() { goToStep(currentStepIndex.value - 1); }
+    function restartAnimation() { stopAutoplay(); goToStep(0); }
+    function stopAutoplay() {
+      isPlaying.value = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    }
+    function togglePlay() {
+      if (isPlaying.value) { stopAutoplay(); return; }
+      if (isAtEnd.value) goToStep(0);
+      isPlaying.value = true;
+      playTimer = setInterval(() => {
+        if (isAtEnd.value) { stopAutoplay(); return; }
+        stepForward();
+      }, speedMs.value);
+    }
+
+    // ── Cámara: pan / zoom (igual que recursion/call-tree.html) ──
+    function worldToScreen(x, y) {
+      return { x: x * camera.scale + camera.offsetX, y: y * camera.scale + camera.offsetY };
+    }
+    function screenToWorld(x, y) {
+      return { x: (x - camera.offsetX) / camera.scale, y: (y - camera.offsetY) / camera.scale };
+    }
+    function fitToView(manual) {
+      if (!nodes.value.length || !containerEl.value) return;
+      const xs = nodes.value.map(n => n.x), ys = nodes.value.map(n => n.y);
+      const minX = Math.min(...xs) - NODE_R, maxX = Math.max(...xs) + NODE_R;
+      const minY = Math.min(...ys) - NODE_R, maxY = Math.max(...ys) + NODE_R;
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const contentW = Math.max(maxX - minX, 1), contentH = Math.max(maxY - minY, 1);
+      camera.scale = Math.min((w - PADDING * 2) / contentW, (h - PADDING * 2) / contentH, 1.6);
+      camera.offsetX = w / 2 - (minX + maxX) / 2 * camera.scale;
+      camera.offsetY = h / 2 - (minY + maxY) / 2 * camera.scale;
+      if (manual) userAdjustedCamera.value = false;
+      draw();
+    }
+
+    function hitTestNode(sx, sy) {
+      for (let i = nodes.value.length - 1; i >= 0; i--) {
+        const n = nodes.value[i];
+        const p = worldToScreen(n.x, n.y);
+        if (Math.hypot(sx - p.x, sy - p.y) <= NODE_R * camera.scale) return n;
+      }
+      return null;
+    }
+
+    // ── Mouse: arrastrar un nodo si el mousedown empieza sobre él, si no, pan de cámara ──
+    let isPanning = false, panStart = null;
+    let draggingNode = null;
+    function onCanvasMouseDown(e) {
+      const hit = hitTestNode(e.offsetX, e.offsetY);
+      if (hit) { draggingNode = hit; return; }
+      isPanning = true;
+      panStart = { x: e.offsetX, y: e.offsetY, offsetX: camera.offsetX, offsetY: camera.offsetY };
+      canvasEl.value.style.cursor = 'grabbing';
+    }
+    function onCanvasMouseMove(e) {
+      if (draggingNode) {
+        const w = screenToWorld(e.offsetX, e.offsetY);
+        draggingNode.x = w.x;
+        draggingNode.y = w.y;
+        draw();
+        return;
+      }
+      if (!isPanning) return;
+      camera.offsetX = panStart.offsetX + (e.offsetX - panStart.x);
+      camera.offsetY = panStart.offsetY + (e.offsetY - panStart.y);
+      userAdjustedCamera.value = true;
+      draw();
+    }
+    function onCanvasMouseUp() {
+      if (draggingNode) { draggingNode = null; persist(); }
+      isPanning = false;
+      if (canvasEl.value) canvasEl.value.style.cursor = 'grab';
+    }
+    function onCanvasWheel(e) {
+      const rect = canvasEl.value.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const before = screenToWorld(mx, my);
+      camera.scale = Math.min(3, Math.max(0.2, camera.scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+      const after = worldToScreen(before.x, before.y);
+      camera.offsetX += mx - after.x;
+      camera.offsetY += my - after.y;
+      userAdjustedCamera.value = true;
+      draw();
+    }
+
+    // ── Paleta de color por tema (Canvas no puede leer var(--bs-*)) ──
+    const PALETTES = {
+      light: {
+        bg: '#ffffff', nodeText: '#212529', edgeDefault: '#adb5bd', edgeTree: '#198754', edgeDiscard: '#dc3545',
+        nodeFill: { default: '#e9ecef', queued: '#cfe2ff', current: '#fff3cd', processed: '#d1e7dd' },
+        nodeStroke: { default: '#6c757d', queued: '#0d6efd', current: '#ffc107', processed: '#198754' },
+      },
+      dark: {
+        bg: '#212529', nodeText: '#f8f9fa', edgeDefault: '#6c757d', edgeTree: '#75b798', edgeDiscard: '#ea868f',
+        nodeFill: { default: '#343a40', queued: '#052c65', current: '#664d03', processed: '#0f5132' },
+        nodeStroke: { default: '#adb5bd', queued: '#6ea8fe', current: '#ffda6a', processed: '#75b798' },
+      },
+    };
+    function palette() { return PALETTES[isDark.value ? 'dark' : 'light']; }
+
+    function nodeByLabel(label) { return nodes.value.find(n => n.label === label); }
+    function nodeState(label, step) {
+      if (!step) return 'default';
+      if (step.processed.includes(label)) return 'processed';
+      if (step.current === label) return 'current';
+      if (step.distances[label] !== Infinity) return 'queued';
+      return 'default';
+    }
+
+    function resizeCanvasToDisplaySize() {
+      const canvas = canvasEl.value, container = containerEl.value;
+      if (!canvas || !container) return;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = container.clientWidth * dpr;
+      canvas.height = container.clientHeight * dpr;
+      canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function draw() {
+      const canvas = canvasEl.value;
+      if (!canvas || !containerEl.value) return;
+      const ctx = canvas.getContext('2d');
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const pal = palette();
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = pal.bg;
+      ctx.fillRect(0, 0, w, h);
+
+      const step = currentStep.value;
+      const edgeCls = step ? step.edgeCls : {};
+      const highlightEdge = step ? step.highlightEdge : null;
+
+      for (const e of edges.value) {
+        const from = nodeByLabel(e.a), to = nodeByLabel(e.b);
+        if (!from || !to) continue;
+        const p1 = worldToScreen(from.x, from.y), p2 = worldToScreen(to.x, to.y);
+        const cls = edgeCls[e.key];
+        let color = pal.edgeDefault, width = 1.5;
+        if (cls === 'tree') { color = pal.edgeTree; width = 2.5; }
+        else if (cls === 'discard') { color = pal.edgeDiscard; width = 2; }
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = highlightEdge === e.key ? width + 1.5 : width;
+        ctx.setLineDash(cls === 'discard' ? [6, 4] : []);
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      for (const n of nodes.value) {
+        const p = worldToScreen(n.x, n.y);
+        const r = NODE_R * camera.scale;
+        const state = nodeState(n.label, step);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = pal.nodeFill[state];
+        ctx.fill();
+        ctx.lineWidth = state === 'current' ? 3 : 1.5;
+        ctx.strokeStyle = pal.nodeStroke[state];
+        ctx.stroke();
+
+        const dist = step ? step.distances[n.label] : Infinity;
+        ctx.fillStyle = pal.nodeText;
+        ctx.textAlign = 'center';
+        if (dist !== undefined && dist !== Infinity) {
+          ctx.font = `${Math.max(9, 11 * camera.scale)}px system-ui, sans-serif`;
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(n.label, p.x, p.y);
+          ctx.font = `${Math.max(8, 10 * camera.scale)}px system-ui, sans-serif`;
+          ctx.textBaseline = 'top';
+          ctx.fillText(`d=${dist}`, p.x, p.y);
+        } else {
+          ctx.font = `${Math.max(10, 13 * camera.scale)}px system-ui, sans-serif`;
+          ctx.textBaseline = 'middle';
+          ctx.fillText(n.label, p.x, p.y);
+        }
+      }
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+      draw();
+    }
+
+    // ── Ciclo de vida ──
+    function handleWindowResize() {
+      resizeCanvasToDisplaySize();
+      if (!userAdjustedCamera.value) fitToView();
+      draw();
+    }
+    onMounted(() => {
+      loadInitialState();
+      resizeCanvasToDisplaySize();
+      fitToView();
+      draw();
+      window.addEventListener('resize', handleWindowResize);
+    });
+    onBeforeUnmount(() => {
+      window.removeEventListener('resize', handleWindowResize);
+      stopAutoplay();
+    });
+
+    return {
+      nodes, startId, onStartChange, PSEUDOCODE,
+      steps, currentStepIndex, currentStep, isAtEnd,
+      isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,
+      showEditor, graphTextDraft, applyGraphText,
+      newConfirm, handleNewClick, shareCopied, shareCurrentState,
+      isDark, toggleTheme, fitToView,
+      canvasEl, containerEl, onCanvasMouseDown, onCanvasMouseMove, onCanvasMouseUp, onCanvasWheel,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
