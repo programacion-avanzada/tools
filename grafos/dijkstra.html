@@ -128,13 +128,13 @@
                 <thead>
                   <tr>
                     <th class="dp-header-cell fst-italic" title="C(fila, columna): costo de ir de fila a columna">C</th>
-                    <th class="dp-header-cell" v-for="n in nodes" :key="n.label">{{ n.label }}</th>
+                    <th class="dp-header-cell" v-for="n in sortedNodes" :key="n.label">{{ n.label }}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="r in nodes" :key="r.label">
+                  <tr v-for="r in sortedNodes" :key="r.label">
                     <th class="dp-header-cell">{{ r.label }}</th>
-                    <td v-for="c in nodes" :key="c.label" :class="matrixCellClass(r.label, c.label)">
+                    <td v-for="c in sortedNodes" :key="c.label" :class="matrixCellClass(r.label, c.label)">
                       {{ weights[r.label + '|' + c.label] ?? '∞' }}
                     </td>
                   </tr>
@@ -150,17 +150,17 @@
                 <thead>
                   <tr>
                     <th class="dp-header-cell"></th>
-                    <th class="dp-header-cell" v-for="n in nodes" :key="n.label">{{ n.label }}</th>
+                    <th class="dp-header-cell" v-for="n in sortedNodes" :key="n.label">{{ n.label }}</th>
                   </tr>
                 </thead>
                 <tbody v-if="currentStep">
                   <tr>
                     <th class="dp-header-cell">D</th>
-                    <td v-for="n in nodes" :key="n.label" :class="dpCellClass(n.label)">{{ fmt(currentStep.dist[n.label]) }}</td>
+                    <td v-for="n in sortedNodes" :key="n.label" :class="dpCellClass(n.label)">{{ fmt(currentStep.dist[n.label]) }}</td>
                   </tr>
                   <tr>
                     <th class="dp-header-cell">P</th>
-                    <td v-for="n in nodes" :key="n.label" class="text-primary" :class="dpCellClass(n.label)">{{ currentStep.pred[n.label] ?? '-' }}</td>
+                    <td v-for="n in sortedNodes" :key="n.label" class="text-primary" :class="dpCellClass(n.label)">{{ currentStep.pred[n.label] ?? '-' }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -201,7 +201,7 @@
                   <th class="dp-header-cell" title="S: nodos que ya se alcanzan con costo mínimo (su distancia es definitiva)">S</th>
                   <th class="dp-header-cell" title="V − S: nodos que todavía falta alcanzar con costo mínimo">V − S</th>
                   <th class="dp-header-cell" title="w: nodo elegido en esta iteración (el de menor distancia en la cola), que pasa a S">w</th>
-                  <th class="dp-header-cell" v-for="n in nodes" :key="n.label"
+                  <th class="dp-header-cell" v-for="n in sortedNodes" :key="n.label"
                     :title="`D[${n.label}]: distancia mínima conocida desde el origen hasta ${n.label} · P[${n.label}]: nodo anterior a ${n.label} en ese camino`">D[{{ n.label }}]/P[{{ n.label }}]</th>
                 </tr>
               </thead>
@@ -211,7 +211,7 @@
                   <td class="text-start">{{ fmtSet(row.S) }}</td>
                   <td class="text-start">{{ fmtSet(row.VS) }}</td>
                   <td class="fw-semibold">{{ row.w }}</td>
-                  <td v-for="n in nodes" :key="n.label" :class="traceCellClass(row, n.label)">
+                  <td v-for="n in sortedNodes" :key="n.label" :class="traceCellClass(row, n.label)">
                     {{ fmt(row.d[n.label]) }}/<span class="text-primary">{{ row.p[n.label] ?? '-' }}</span>
                   </td>
                 </tr>
@@ -296,6 +296,8 @@ const DEFAULT_GRAPH_TEXT = '0-1:7\n0-2:3\n2-1:2\n2-3:8\n1-3:2';
 const DEFAULT_POSITIONS = { 0: { x: -120, y: -90 }, 2: { x: 120, y: -90 }, 1: { x: -120, y: 90 }, 3: { x: 120, y: 90 } };
 
 function edgeKey(a, b, directed) { return directed ? `${a}>${b}` : [a, b].sort().join('|'); }
+// Orden de los nodos en matriz, arrays y seguimiento: lexicográfico, con números en orden natural (2 antes que 10).
+function byLabel(a, b) { return String(a).localeCompare(String(b), 'es', { numeric: true }); }
 function fmt(x) { return x === Infinity ? '∞' : x; }
 function fmtSet(labels) { return labels.length ? `{${labels.join(', ')}}` : '∅'; }
 // Etiqueta de nodo lista para KaTeX (se sacan los caracteres especiales de LaTeX).
@@ -399,7 +401,7 @@ function computeSteps(adjacency, nodeLabels, startId) {
       label: rows.length ? rows.length : 'Inicial',
       node: current,
       S: [...visited],
-      VS: nodeLabels.filter(l => !visited.has(l)),
+      VS: nodeLabels.filter(l => !visited.has(l)).sort(byLabel),
       w: current,
       d: { ...dist },
       p: { ...pred },
@@ -481,6 +483,7 @@ createApp({
     const containerEl = ref(null);
 
     const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
+    const sortedNodes = computed(() => [...nodes.value].sort((a, b) => byLabel(a.label, b.label)));
     const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
 
     // ── Clases de las tablas ──
@@ -884,7 +887,7 @@ createApp({
     });
 
     return {
-      nodes, weights, directed, toggleDirected, startId, onStartChange, PSEUDOCODE,
+      nodes, sortedNodes, weights, directed, toggleDirected, startId, onStartChange, PSEUDOCODE,
       steps, currentStepIndex, currentStep, isAtEnd,
       matrixCellClass, dpCellClass, isOpenRow, traceCellClass, fmt, fmtSet,
       isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,
