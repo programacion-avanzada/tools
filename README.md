@@ -47,13 +47,20 @@ Permite:
 |---|---|---|
 | [`grafos/dfs.html`](grafos/dfs.html) | DFS — Recorrido en Profundidad (pila explícita) | O(V+E) |
 | [`grafos/bfs.html`](grafos/bfs.html) | BFS — Recorrido en Anchura (cola + array de distancias) | O(V+E) |
+| [`grafos/dijkstra.html`](grafos/dijkstra.html) | Dijkstra — Caminos Mínimos (cola de prioridad) | O((V+E)·log V) |
 
-Ambas permiten:
+Las tres permiten:
 - Cargar cualquier grafo no dirigido escribiendo su lista de aristas (`A-B`, una por línea o separadas por coma; un token sin guion declara un nodo aislado); el orden de las aristas define el orden de exploración de los vecinos.
 - Elegir el nodo inicial con un selector, y recorrer el algoritmo paso a paso (manual, con autoplay a velocidad ajustable, o reiniciando la animación sin perder el grafo cargado).
 - Ver en todo momento la estructura de datos del algoritmo (pila en DFS, cola + array de distancias en BFS), el pseudocódigo con la línea actual resaltada, y una explicación en lenguaje llano de cada paso.
 - Distinguir por color los nodos no visitados / pendientes / actual / ya procesados, y las aristas de árbol (llevaron a un nodo nuevo) de las descartadas (llevan a uno ya visitado) — clasificación que queda fija una vez que la arista se examina. BFS además muestra la distancia (en saltos) desde el nodo inicial junto a cada nodo descubierto.
 - Arrastrar los nodos para destrabar cruces de aristas.
+
+Dijkstra además:
+- Acepta aristas con peso (`A-B:3`; sin peso vale 1, los pesos negativos se rechazan) y se puede alternar entre grafo dirigido y no dirigido.
+- Muestra siempre la matriz de adyacencia, los arrays de distancias (D) y predecesores (P), y la cola de prioridad (con las entradas viejas tachadas, que se descartan al extraerlas).
+- Arma paso a paso la tabla de seguimiento clásica (Iteración | S | V − S | w | D[x]/P[x]), agregando una fila por cada nodo que pasa a S y resaltando los valores que cambian.
+- Plantea con KaTeX, en cada relajación, `D[w] = min(D[w], D[v] + C(v,w))` con los valores sustituidos.
 - Autoguardado en el navegador (localStorage), modo claro/oscuro, botón "🆕 Nuevo" y "🔗 Compartir" (grafo + posiciones + nodo inicial codificados en la URL), igual que el resto de las herramientas.
 
 ## Cómo usarlas
@@ -69,6 +76,6 @@ make serve   # sirve el directorio en http://localhost:4000 (PORT=xxxx para camb
 - **Bootstrap 5.3.3** — layout y componentes UI.
 - **Vue 3** (`vue.global.js`, Composition API) — estado reactivo e interacción.
 - **KaTeX 0.16.10** — renderizado de fórmulas matemáticas.
-- **Canvas 2D** — dibujo imperativo del diagrama en `recursion/call-tree.html` y `grafos/dfs.html`.
+- **Canvas 2D** — dibujo imperativo del diagrama en `recursion/call-tree.html` y `grafos/`.
 
 Ver [AGENTS.md](AGENTS.md) para la convención/plantilla que siguen estos archivos y las guías para crear visualizaciones nuevas.

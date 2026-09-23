@@ -7,7 +7,7 @@ No ejecutar ninguna acción de escritura de `git` ni `gh` (commit, push, crear/b
 Guía para crear nuevas visualizaciones didácticas de Programación Avanzada. Hay tres familias:
 - **Tablas de Programación Dinámica** (`dp/knapsack.html`, `dp/lcs.html`, `dp/edit-distance.html`): layout de 2 columnas, tabla HTML interactiva.
 - **Diagramas en Canvas** (`recursion/call-tree.html`): layout full-bleed, dibujo imperativo en `<canvas>`.
-- **Grafos con panel de código** (`grafos/dfs.html`, `grafos/bfs.html`): full-bleed con panel lateral, grafo animado en `<canvas>` (2/3) + pseudocódigo/explicación (1/3).
+- **Grafos con panel de código** (`grafos/dfs.html`, `grafos/bfs.html`, `grafos/dijkstra.html`): full-bleed con panel lateral, grafo animado en `<canvas>` (2/3) + pseudocódigo/explicación (1/3).
 
 Las reglas de stack/idioma, **Modo claro/oscuro**, **Persistencia/"Nuevo"/Compartir por URL**, **Footer** y **Portada** aplican a **las tres familias**. Para crear una visualización nueva, copiar el archivo existente más parecido en forma (una tabla → `dp/lcs.html`; un diagrama/grafo sin código → `recursion/call-tree.html`; un algoritmo paso a paso sobre un grafo → `grafos/dfs.html`) y adaptar.
 
@@ -79,7 +79,7 @@ Para diagramas/grafos (árboles de llamadas, DAGs), no el layout de 2 columnas. 
 
 ## Familia 3: grafos con panel de código (`grafos/`)
 
-Para algoritmos paso a paso sobre un grafo genérico (DFS/BFS y similares), donde además del grafo hace falta mostrar el pseudocódigo con la línea actual resaltada, una explicación de cada paso, y estructuras de datos del algoritmo (pila, cola, conjuntos, arrays auxiliares). Referencia: `grafos/dfs.html` (pila + conjunto de visitados) y `grafos/bfs.html` (cola + array de distancias) — son el mismo esqueleto de interfaz y ejecución, solo cambian `PSEUDOCODE`, `computeSteps()` y la(s) estructura(s) de datos que muestran los overlays flotantes.
+Para algoritmos paso a paso sobre un grafo genérico (DFS/BFS y similares), donde además del grafo hace falta mostrar el pseudocódigo con la línea actual resaltada, una explicación de cada paso, y estructuras de datos del algoritmo (pila, cola, conjuntos, arrays auxiliares). Referencia: `grafos/dfs.html` (pila + conjunto de visitados) y `grafos/bfs.html` (cola + array de distancias); `grafos/dijkstra.html` es la variante con pesos, grafo dirigido opcional, panel de datos (matriz/D/P/cola) al lado del grafo, tabla de seguimiento por iteración debajo y KaTeX para la relajación — son el mismo esqueleto de interfaz y ejecución, solo cambian `PSEUDOCODE`, `computeSteps()` y la(s) estructura(s) de datos que muestran los overlays flotantes.
 
 - **Layout full-bleed con panel lateral**: `#app` flex-column a `height:100vh` — navbar, una fila `.main-row` (`flex:1 1 auto; display:flex`) con `.canvas-wrap` (`flex:2 1 0`, el grafo) y `.code-panel` (`flex:1 1 0; overflow-y:auto`, código + explicación), y `.footer-bar` al pie de todo el ancho (no dentro de ninguna de las dos columnas). En pantallas angostas (`@media max-width: 768px`), `.main-row` pasa a `flex-direction: column`.
 - **Grafo genérico, no jerárquico**: un solo array `edges: [{a, b, key}]` (sin `parentId`), no dirigido. La lista de adyacencia (`Map<label, label[]>`) se arma recorriendo las aristas en el orden en que fueron declaradas — ese orden es el que usa el algoritmo para "Adyacentes(grafo, v)".

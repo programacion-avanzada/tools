@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dijkstra — Caminos Mínimos</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .main-row { flex: 1 1 auto; display: flex; min-height: 0; }
+    .left-col { flex: 2 1 0; display: flex; flex-direction: column; min-width: 0; }
+    .top-row { flex: 1 1 65%; display: flex; min-height: 0; }
+    .canvas-wrap { flex: 1 1 0; position: relative; overflow: hidden; min-width: 0; }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    .data-panel { flex: 0 1 auto; max-width: 45%; overflow: auto; border-left: 1px solid var(--bs-border-color); padding: .5rem; }
+    .trace-wrap { flex: 1 1 35%; overflow: auto; border-top: 1px solid var(--bs-border-color); padding: .5rem; }
+    .code-panel { flex: 1 1 0; overflow-y: auto; border-left: 1px solid var(--bs-border-color); min-width: 300px; }
+    .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
+    .empty-state-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .editor-panel { position: absolute; bottom: .75rem; left: .75rem; width: 300px; max-width: calc(100% - 1.5rem); }
+    .pseudo-code { font-family: Consolas, monospace; font-size: .8rem; white-space: pre; padding: .5rem 0; overflow-x: auto; }
+    .pseudo-line { padding: .1rem .75rem; min-height: 1.2em; }
+    .pseudo-active { background: var(--bs-warning-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .mini-table td, .mini-table th { padding: .15rem .5rem; }
+    .row-open > td:not(.cell-changed):not(.cell-final), .cell-current { background-color: var(--bs-warning-bg-subtle) !important; }
+    .cell-changed { background-color: var(--bs-primary-bg-subtle) !important; font-weight: 700; }
+    .cell-final { background-color: var(--bs-success-bg-subtle) !important; }
+    .cell-target { background-color: var(--bs-info-bg-subtle) !important; outline: 2px solid var(--bs-info-border-subtle); }
+    .pq-stale { text-decoration: line-through; color: var(--bs-secondary-color); }
+    @media (max-width: 768px) {
+      #app { height: auto; }
+      .main-row, .top-row { flex-direction: column; }
+      .canvas-wrap { flex: none; height: 320px; }
+      .data-panel { max-width: none; border-left: none; border-top: 1px solid var(--bs-border-color); }
+      .code-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand mb-0 h5">🛣️ Dijkstra — Caminos Mínimos</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">Grafos · O((V+E)·log V)</span>
+      <select class="form-select form-select-sm" style="width:auto" v-if="nodes.length"
+        v-model="startId" @change="onStartChange" title="Nodo inicial">
+        <option v-for="n in nodes" :key="n.label" :value="n.label">Inicio: {{ n.label }}</option>
+      </select>
+      <button class="btn btn-sm btn-outline-light" @click="toggleDirected" title="Cambiar entre grafo dirigido y no dirigido">
+        {{ directed ? '➡️ Dirigido' : '↔️ No dirigido' }}
+      </button>
+      <div class="btn-group btn-group-sm" v-if="nodes.length">
+        <button class="btn btn-outline-light" @click="restartAnimation" title="Reiniciar animación (mismo grafo)">⏮</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente">⏩</button>
+      </div>
+      <input v-if="nodes.length" type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
+        v-model.number="speedMs" title="Velocidad de reproducción" />
+      <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="showEditor = !showEditor" title="Editar el grafo">✏️ Editar grafo</button>
+      <button class="btn btn-sm btn-outline-light" @click="fitToView(true)" title="Ajustar vista" v-if="nodes.length">🎯</button>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver al grafo de ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir este grafo">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="main-row">
+    <div class="left-col">
+      <div class="top-row">
+        <div class="canvas-wrap" ref="containerEl">
+          <canvas
+            ref="canvasEl"
+            @mousedown="onCanvasMouseDown"
+            @mousemove="onCanvasMouseMove"
+            @mouseup="onCanvasMouseUp"
+            @mouseleave="onCanvasMouseUp"
+            @wheel.prevent="onCanvasWheel"
+          ></canvas>
+
+          <div class="empty-state-overlay" v-if="!nodes.length">
+            <div class="card shadow-sm" style="max-width: 380px;">
+              <div class="card-body text-center">
+                <div class="fs-1">🛣️</div>
+                <p class="mt-2 mb-0 text-muted">Cargá un grafo con "✏️ Editar grafo" para empezar.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card shadow-sm editor-panel" v-if="showEditor">
+            <div class="card-body p-2">
+              <label class="form-label small text-muted mb-1">
+                Aristas con peso, una por línea o separadas por coma: <code>A-B:3</code> (sin peso = 1). Nodo aislado: <code>G</code>.
+              </label>
+              <textarea class="form-control form-control-sm mb-2" rows="6" v-model="graphTextDraft" style="font-family: monospace"></textarea>
+              <div class="alert alert-danger small py-1 px-2 mb-2" v-if="graphError">{{ graphError }}</div>
+              <button class="btn btn-dark btn-sm w-100" @click="applyGraphText">▶ Aplicar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="data-panel" v-if="nodes.length">
+          <div class="card mb-2">
+            <div class="card-header py-1 px-2 small fw-semibold">🧮 Matriz de adyacencia</div>
+            <div class="card-body p-2" style="overflow-x: auto;">
+              <table class="table table-sm table-bordered text-center mb-0 mini-table small" style="width: auto;">
+                <thead>
+                  <tr>
+                    <th class="dp-header-cell fst-italic" title="C(fila, columna): costo de ir de fila a columna">C</th>
+                    <th class="dp-header-cell" v-for="n in nodes" :key="n.label">{{ n.label }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in nodes" :key="r.label">
+                    <th class="dp-header-cell">{{ r.label }}</th>
+                    <td v-for="c in nodes" :key="c.label" :class="matrixCellClass(r.label, c.label)">
+                      {{ weights[r.label + '|' + c.label] ?? '∞' }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card mb-2">
+            <div class="card-header py-1 px-2 small fw-semibold">📏 Distancias y predecesores</div>
+            <div class="card-body p-2" style="overflow-x: auto;">
+              <table class="table table-sm table-bordered text-center mb-0 mini-table small" style="width: auto;">
+                <thead>
+                  <tr>
+                    <th class="dp-header-cell"></th>
+                    <th class="dp-header-cell" v-for="n in nodes" :key="n.label">{{ n.label }}</th>
+                  </tr>
+                </thead>
+                <tbody v-if="currentStep">
+                  <tr>
+                    <th class="dp-header-cell">D</th>
+                    <td v-for="n in nodes" :key="n.label" :class="dpCellClass(n.label)">{{ fmt(currentStep.dist[n.label]) }}</td>
+                  </tr>
+                  <tr>
+                    <th class="dp-header-cell">P</th>
+                    <td v-for="n in nodes" :key="n.label" class="text-primary" :class="dpCellClass(n.label)">{{ currentStep.pred[n.label] ?? '-' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header py-1 px-2 small fw-semibold">📥 Cola de prioridad</div>
+            <div class="card-body p-2">
+              <table class="table table-sm table-bordered text-center mb-0 mini-table small" style="width: auto;">
+                <thead>
+                  <tr><th class="dp-header-cell">nodo</th><th class="dp-header-cell">costo</th><th class="dp-header-cell"></th></tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!currentStep || !currentStep.pq.length"><td colspan="3" class="text-muted">(vacía)</td></tr>
+                  <tr v-for="(e, idx) in (currentStep ? currentStep.pq : [])" :key="idx"
+                    :title="e.stale ? 'Entrada vieja: se descartará al extraerla' : ''">
+                    <td :class="{ 'pq-stale': e.stale }">{{ e.node }}</td>
+                    <td :class="{ 'pq-stale': e.stale }">{{ e.prio }}</td>
+                    <td><span class="badge bg-primary" v-if="idx === 0">mín</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="trace-wrap" v-if="nodes.length">
+        <div class="card">
+          <div class="card-header py-1 px-2 small fw-semibold">📋 Seguimiento por iteración</div>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <p class="text-muted small text-center my-2" v-if="!currentStep || !currentStep.rows.length">La primera fila aparece cuando se extrae el nodo inicial de la cola.</p>
+            <table class="table table-sm table-bordered text-center align-middle mb-0 small" v-else>
+              <thead>
+                <tr>
+                  <th class="dp-header-cell" title="Número de iteración: una fila por cada nodo que pasa a S">Iteración</th>
+                  <th class="dp-header-cell" title="S: nodos que ya se alcanzan con costo mínimo (su distancia es definitiva)">S</th>
+                  <th class="dp-header-cell" title="V − S: nodos que todavía falta alcanzar con costo mínimo">V − S</th>
+                  <th class="dp-header-cell" title="w: nodo elegido en esta iteración (el de menor distancia en la cola), que pasa a S">w</th>
+                  <th class="dp-header-cell" v-for="n in nodes" :key="n.label"
+                    :title="`D[${n.label}]: distancia mínima conocida desde el origen hasta ${n.label} · P[${n.label}]: nodo anterior a ${n.label} en ese camino`">D[{{ n.label }}]/P[{{ n.label }}]</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in currentStep.rows" :key="idx" :class="{ 'row-open': isOpenRow(row, idx) }">
+                  <td>{{ row.label }}</td>
+                  <td class="text-start">{{ fmtSet(row.S) }}</td>
+                  <td class="text-start">{{ fmtSet(row.VS) }}</td>
+                  <td class="fw-semibold">{{ row.w }}</td>
+                  <td v-for="n in nodes" :key="n.label" :class="traceCellClass(row, n.label)">
+                    {{ fmt(row.d[n.label]) }}/<span class="text-primary">{{ row.p[n.label] ?? '-' }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-panel">
+      <div class="p-3">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">💻 Pseudocódigo</div>
+          <div class="card-body p-0">
+            <div class="pseudo-code">
+              <div v-for="(line, idx) in PSEUDOCODE" :key="idx" class="pseudo-line"
+                :class="{ 'pseudo-active': currentStep && currentStep.activeLines.includes(idx) }">{{ line }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">🔍 Explicación</div>
+          <div class="card-body">
+            <p class="text-muted text-center py-3 mb-0" v-if="!currentStep">Cargá un grafo y presioná ▶️ o "Paso siguiente" para empezar.</p>
+            <div v-else>
+              <span class="badge fs-6 text-wrap text-start" :class="currentStep.badge.cls">{{ currentStep.badge.icon }} {{ currentStep.badge.text }}</span>
+            </div>
+            <div id="formula-box" class="bg-body-tertiary rounded p-2 mt-3 overflow-auto" v-show="currentStep && currentStep.formula"></div>
+            <p class="small text-muted mt-3 mb-0" v-if="currentStep">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header fw-semibold">Leyenda</div>
+          <ul class="list-group list-group-flush small">
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-secondary">&nbsp;&nbsp;</span> No alcanzado (distancia ∞)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-primary">&nbsp;&nbsp;</span> Con distancia tentativa (V − S) / valor que cambió en la iteración</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-warning text-dark">&nbsp;&nbsp;</span> v actual (extraído de la cola) / iteración en curso</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-info text-dark">&nbsp;&nbsp;</span> w: sucesor que se está evaluando</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-success">&nbsp;&nbsp;</span> En S: distancia mínima definitiva</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-success">&nbsp;&nbsp;</span> Arista del árbol de predecesores</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar text-center small border-top">
+    <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } = Vue;
+
+const PSEUDOCODE = [
+  'ALGORITMO DijkstraConCola(grafo G, nodo s)',
+  '    PARA CADA v EN V(G) HACER',
+  '        distancia[v] ← ∞',
+  '        visitado[v] ← FALSO',
+  '    distancia[s] ← 0',
+  '    agregar(cola, s, 0)',
+  '',
+  '    MIENTRAS NO estaVacia(cola) HACER',
+  '        v ← extraerMinimo(cola)',
+  '        SI NO visitado[v] ENTONCES',
+  '            visitado[v] ← VERDADERO',
+  '            PARA CADA w EN sucesores(G, v) HACER',
+  '                SI distancia[w] > distancia[v] + peso(v, w) ENTONCES',
+  '                    distancia[w] ← distancia[v] + peso(v, w)',
+  '                    predecesores[w] ← v',
+  '                    agregar(cola, w, distancia[w])',
+  '',
+  '    RETORNAR distancia, predecesores',
+];
+
+const DEFAULT_GRAPH_TEXT = '0-1:7\n0-2:3\n2-1:2\n2-3:8\n1-3:2';
+// Mismo acomodo que el ejemplo de la cátedra (el circular cruza 0→2 con 1→3).
+const DEFAULT_POSITIONS = { 0: { x: -120, y: -90 }, 2: { x: 120, y: -90 }, 1: { x: -120, y: 90 }, 3: { x: 120, y: 90 } };
+
+function edgeKey(a, b, directed) { return directed ? `${a}>${b}` : [a, b].sort().join('|'); }
+function fmt(x) { return x === Infinity ? '∞' : x; }
+function fmtSet(labels) { return labels.length ? `{${labels.join(', ')}}` : '∅'; }
+// Etiqueta de nodo lista para KaTeX (se sacan los caracteres especiales de LaTeX).
+function tex(label) { return `\\text{${String(label).replace(/[\\{}_^$&%#~]/g, '')}}`; }
+function texNum(x) { return x === Infinity ? '\\infty' : x; }
+
+// ── Parseo del grafo: "A-B:3" declara una arista de peso 3 (sin ":peso" vale 1),
+// "G" sola declara un nodo aislado. El orden de las aristas define el orden de sucesores(G, v).
+function parseGraphText(text, directed) {
+  const tokens = text.split(/[\n,]/).map(t => t.trim()).filter(Boolean);
+  const nodeLabels = [];
+  const nodeSet = new Set();
+  const edgeSet = new Set();
+  const edges = [];
+  function addNode(label) {
+    if (!nodeSet.has(label)) { nodeSet.add(label); nodeLabels.push(label); }
+  }
+  for (const tok of tokens) {
+    const [edgePart, weightPart] = tok.split(':').map(s => s.trim());
+    const parts = edgePart.split('-').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const [a, b] = parts;
+      const w = weightPart === undefined ? 1 : Number(weightPart);
+      if (weightPart === '' || !Number.isFinite(w)) return { error: `Peso inválido en "${tok}".` };
+      if (w < 0) return { error: `"${tok}": Dijkstra no admite pesos negativos.` };
+      addNode(a); addNode(b);
+      if (a === b) continue;
+      const key = edgeKey(a, b, directed);
+      if (!edgeSet.has(key)) { edgeSet.add(key); edges.push({ a, b, w, key }); }
+    } else if (parts.length === 1) {
+      addNode(parts[0]);
+    }
+  }
+  return { nodeLabels, edges };
+}
+
+function buildAdjacency(nodeLabels, edges, directed) {
+  const adj = new Map();
+  for (const label of nodeLabels) adj.set(label, []);
+  for (const { a, b, w } of edges) {
+    adj.get(a).push({ to: b, w });
+    if (!directed) adj.get(b).push({ to: a, w });
+  }
+  return adj;
+}
+
+// ── Simula el pseudocódigo con una cola de prioridad real (entradas viejas incluidas:
+// no se borran, se descartan al extraerlas) y arma, además, la tabla de seguimiento:
+// una fila nueva cada vez que un nodo pasa a S, completada durante sus relajaciones.
+function computeSteps(adjacency, nodeLabels, startId) {
+  const steps = [];
+  if (!startId || !adjacency.has(startId)) return steps;
+
+  const dist = {};
+  const pred = {};
+  for (const label of nodeLabels) dist[label] = Infinity;
+  const visited = new Set();
+  // ponytail: cola = array ordenado (inserción O(n)); alcanza para grafos de pizarrón.
+  const pq = [];
+  let seq = 0;
+  function pqAdd(node, prio) {
+    pq.push({ node, prio, seq: seq++ });
+    pq.sort((x, y) => x.prio - y.prio || x.seq - y.seq);
+  }
+  const rows = [];
+  let current = null, target = null, highlightEdge = null, formula = null;
+
+  function snapshot(activeLines, badge) {
+    steps.push({
+      activeLines,
+      pq: pq.map(e => ({ node: e.node, prio: e.prio, stale: visited.has(e.node) || e.prio > dist[e.node] })),
+      dist: { ...dist },
+      pred: { ...pred },
+      visited: [...visited],
+      current, target, highlightEdge, formula,
+      rows: rows.map(r => ({ ...r, d: { ...r.d }, p: { ...r.p }, changed: [...r.changed] })),
+      badge,
+    });
+  }
+
+  snapshot([1, 2, 3], { icon: '🏗️', text: 'Todas las distancias arrancan en ∞ y ningún nodo está visitado.', cls: 'bg-secondary' });
+
+  dist[startId] = 0;
+  pqAdd(startId, 0);
+  snapshot([4, 5], { icon: '➕', text: `distancia[${startId}] = 0 y se agrega "${startId}" a la cola con prioridad 0.`, cls: 'bg-primary' });
+
+  while (pq.length) {
+    snapshot([7], { icon: '🔁', text: `La cola no está vacía (${pq.length} entrada${pq.length === 1 ? '' : 's'}): seguimos.`, cls: 'bg-secondary' });
+
+    const entry = pq.shift();
+    current = entry.node;
+    snapshot([8], { icon: '📤', text: `Se extrae el mínimo: v = "${current}" (prioridad ${entry.prio}).`, cls: 'bg-warning text-dark' });
+
+    if (visited.has(current)) {
+      snapshot([9], { icon: '🚫', text: `"${current}" ya estaba visitado: es una entrada vieja de la cola y se descarta.`, cls: 'bg-danger' });
+      continue;
+    }
+
+    visited.add(current);
+    rows.push({
+      label: rows.length ? rows.length : 'Inicial',
+      node: current,
+      S: [...visited],
+      VS: nodeLabels.filter(l => !visited.has(l)),
+      w: current,
+      d: { ...dist },
+      p: { ...pred },
+      changed: [],
+    });
+    snapshot([9, 10], { icon: '✅', text: `"${current}" no estaba visitado: pasa a S con distancia mínima definitiva ${dist[current]}.`, cls: 'bg-success' });
+
+    const row = rows[rows.length - 1];
+    for (const { to, w: cost } of adjacency.get(current)) {
+      target = to;
+      highlightEdge = { from: current, to };
+      const cand = dist[current] + cost;
+      const best = Math.min(dist[to], cand);
+      formula = `D[${tex(to)}] = \\min\\begin{cases}`
+        + ` D[${tex(to)}] = ${texNum(dist[to])} \\\\`
+        + ` D[${tex(current)}] + C(${tex(current)}, ${tex(to)}) = ${dist[current]} + ${cost} = ${cand}`
+        + ` \\end{cases} = \\mathbf{${best}}`;
+      if (dist[to] > cand) {
+        snapshot([11, 12], { icon: '👀', text: `${cand} < ${fmt(dist[to])}: pasando por "${current}" se llega más barato a "${to}".`, cls: 'bg-primary' });
+        dist[to] = cand;
+        pred[to] = current;
+        pqAdd(to, cand);
+        row.d[to] = cand;
+        row.p[to] = current;
+        if (!row.changed.includes(to)) row.changed.push(to);
+        snapshot([13, 14, 15], { icon: '📥', text: `distancia[${to}] = ${cand}, predecesores[${to}] = ${current}, y se agrega "${to}" a la cola con prioridad ${cand}.`, cls: 'bg-success' });
+      } else {
+        snapshot([11, 12], { icon: '➖', text: `${cand} ≥ ${fmt(dist[to])}: pasar por "${current}" no mejora el camino a "${to}", se mantiene.`, cls: 'bg-secondary' });
+      }
+    }
+    target = null; highlightEdge = null; formula = null;
+  }
+  current = null;
+  snapshot([17], { icon: '🏁', text: 'La cola quedó vacía: se retornan distancia y predecesores.', cls: 'bg-success' });
+  return steps;
+}
+
+// ── Layout inicial circular: los nodos que ya tenían posición la conservan,
+// los nuevos se ubican en círculo según su índice en la lista total de nodos.
+function layoutNodes(nodeLabels, existingPositions) {
+  const R = 160;
+  const positions = {};
+  nodeLabels.forEach((label, i) => {
+    if (existingPositions[label]) { positions[label] = existingPositions[label]; return; }
+    const angle = (i / nodeLabels.length) * Math.PI * 2 - Math.PI / 2;
+    positions[label] = { x: Math.cos(angle) * R, y: Math.sin(angle) * R };
+  });
+  return positions;
+}
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-grafos-dijkstra';
+    const NODE_R = 22;
+    const PADDING = 50;
+
+    const nodes = ref([]);
+    const edges = ref([]);
+    const weights = ref({});
+    const directed = ref(true);
+    let adjacencyMap = new Map();
+
+    const startId = ref('');
+    const steps = ref([]);
+    const currentStepIndex = ref(0);
+    const isPlaying = ref(false);
+    const speedMs = ref(700);
+    let playTimer = null;
+
+    const showEditor = ref(false);
+    const graphTextDraft = ref(DEFAULT_GRAPH_TEXT);
+    const graphError = ref('');
+
+    const camera = reactive({ offsetX: 0, offsetY: 0, scale: 1 });
+    const userAdjustedCamera = ref(false);
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+
+    const canvasEl = ref(null);
+    const containerEl = ref(null);
+
+    const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
+    const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
+
+    // ── Clases de las tablas ──
+    function matrixCellClass(r, c) {
+      const s = currentStep.value;
+      if (!s) return '';
+      if (s.highlightEdge && s.highlightEdge.from === r && s.highlightEdge.to === c) return 'cell-target';
+      if (s.current === r) return 'cell-current';
+      return '';
+    }
+    function dpCellClass(label) {
+      const s = currentStep.value;
+      if (!s) return '';
+      if (s.target === label) return 'cell-target';
+      return s.visited.includes(label) ? 'cell-final' : '';
+    }
+    function isOpenRow(row, idx) {
+      const s = currentStep.value;
+      return idx === s.rows.length - 1 && s.current === row.node;
+    }
+    function traceCellClass(row, x) {
+      if (row.S.includes(x)) return 'cell-final';
+      return row.changed.includes(x) ? 'cell-changed' : '';
+    }
+
+    // ── Persistencia ──
+    function positionsMap() {
+      const m = {};
+      for (const n of nodes.value) m[n.label] = { x: n.x, y: n.y };
+      return m;
+    }
+    function currentState() {
+      return { graphText: graphTextDraft.value, positions: positionsMap(), startId: startId.value, directed: directed.value };
+    }
+    function applyState(data) {
+      graphTextDraft.value = data.graphText ?? graphTextDraft.value;
+      directed.value = data.directed ?? directed.value;
+      const parsed = parseGraphText(graphTextDraft.value, directed.value);
+      const nodeLabels = parsed.nodeLabels || [];
+      const parsedEdges = parsed.edges || [];
+      const posMap = layoutNodes(nodeLabels, data.positions || {});
+      nodes.value = nodeLabels.map(label => ({ label, x: posMap[label].x, y: posMap[label].y }));
+      edges.value = parsedEdges;
+      adjacencyMap = buildAdjacency(nodeLabels, parsedEdges, directed.value);
+      const w = {};
+      for (const [from, list] of adjacencyMap) for (const { to, w: cost } of list) w[`${from}|${to}`] = cost;
+      weights.value = w;
+      startId.value = (data.startId && nodeLabels.includes(data.startId)) ? data.startId : (nodeLabels[0] || '');
+      regenerateSteps();
+    }
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
+    }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) { resetToDefault(); return; }
+        applyState(JSON.parse(raw));
+      } catch (e) { resetToDefault(); }
+    }
+
+    // ── Compartir por URL (#d=...) ──
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer el grafo de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo" (2 pasos) ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      newConfirm.value = false;
+      graphError.value = '';
+      applyState({ graphText: DEFAULT_GRAPH_TEXT, positions: DEFAULT_POSITIONS, startId: '0', directed: true });
+      persist();
+      userAdjustedCamera.value = false;
+      nextTick(() => { resizeCanvasToDisplaySize(); fitToView(); });
+    }
+
+    // ── Editar grafo ──
+    function applyGraphText() {
+      const { error } = parseGraphText(graphTextDraft.value, directed.value);
+      graphError.value = error || '';
+      if (error) return;
+      applyState({ graphText: graphTextDraft.value, positions: positionsMap(), startId: startId.value });
+      persist();
+      userAdjustedCamera.value = false;
+      nextTick(() => { resizeCanvasToDisplaySize(); fitToView(); });
+    }
+    function toggleDirected() {
+      applyState({ ...currentState(), directed: !directed.value });
+      persist();
+    }
+    function onStartChange() {
+      regenerateSteps();
+      persist();
+    }
+
+    // ── Reproducción ──
+    function regenerateSteps() {
+      const labels = nodes.value.map(n => n.label);
+      steps.value = computeSteps(adjacencyMap, labels, startId.value);
+      currentStepIndex.value = 0;
+      stopAutoplay();
+      refresh();
+    }
+    function goToStep(i) {
+      currentStepIndex.value = Math.max(0, Math.min(steps.value.length - 1, i));
+      refresh();
+    }
+    function refresh() {
+      draw();
+      nextTick(renderFormula);
+    }
+    function renderFormula() {
+      const el = document.getElementById('formula-box');
+      if (!el) return;
+      const f = currentStep.value && currentStep.value.formula;
+      if (f) katex.render(f, el, { displayMode: true, throwOnError: false });
+      else el.innerHTML = '';
+    }
+    function stepForward() { if (!isAtEnd.value) goToStep(currentStepIndex.value + 1); else stopAutoplay(); }
+    function stepBackward() { goToStep(currentStepIndex.value - 1); }
+    function restartAnimation() { stopAutoplay(); goToStep(0); }
+    function stopAutoplay() {
+      isPlaying.value = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    }
+    function togglePlay() {
+      if (isPlaying.value) { stopAutoplay(); return; }
+      if (isAtEnd.value) goToStep(0);
+      isPlaying.value = true;
+      playTimer = setInterval(() => {
+        if (isAtEnd.value) { stopAutoplay(); return; }
+        stepForward();
+      }, speedMs.value);
+    }
+
+    // ── Cámara: pan / zoom (igual que recursion/call-tree.html) ──
+    function worldToScreen(x, y) {
+      return { x: x * camera.scale + camera.offsetX, y: y * camera.scale + camera.offsetY };
+    }
+    function screenToWorld(x, y) {
+      return { x: (x - camera.offsetX) / camera.scale, y: (y - camera.offsetY) / camera.scale };
+    }
+    function fitToView(manual) {
+      if (!nodes.value.length || !containerEl.value) return;
+      const xs = nodes.value.map(n => n.x), ys = nodes.value.map(n => n.y);
+      const minX = Math.min(...xs) - NODE_R, maxX = Math.max(...xs) + NODE_R;
+      const minY = Math.min(...ys) - NODE_R, maxY = Math.max(...ys) + NODE_R;
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const contentW = Math.max(maxX - minX, 1), contentH = Math.max(maxY - minY, 1);
+      camera.scale = Math.max(0.2, Math.min((w - PADDING * 2) / contentW, (h - PADDING * 2) / contentH, 1.6));
+      camera.offsetX = w / 2 - (minX + maxX) / 2 * camera.scale;
+      camera.offsetY = h / 2 - (minY + maxY) / 2 * camera.scale;
+      if (manual) userAdjustedCamera.value = false;
+      draw();
+    }
+
+    function hitTestNode(sx, sy) {
+      for (let i = nodes.value.length - 1; i >= 0; i--) {
+        const n = nodes.value[i];
+        const p = worldToScreen(n.x, n.y);
+        if (Math.hypot(sx - p.x, sy - p.y) <= NODE_R * camera.scale) return n;
+      }
+      return null;
+    }
+
+    // ── Mouse: arrastrar un nodo si el mousedown empieza sobre él, si no, pan de cámara ──
+    let isPanning = false, panStart = null;
+    let draggingNode = null;
+    function onCanvasMouseDown(e) {
+      const hit = hitTestNode(e.offsetX, e.offsetY);
+      if (hit) { draggingNode = hit; return; }
+      isPanning = true;
+      panStart = { x: e.offsetX, y: e.offsetY, offsetX: camera.offsetX, offsetY: camera.offsetY };
+      canvasEl.value.style.cursor = 'grabbing';
+    }
+    function onCanvasMouseMove(e) {
+      if (draggingNode) {
+        const w = screenToWorld(e.offsetX, e.offsetY);
+        draggingNode.x = w.x;
+        draggingNode.y = w.y;
+        draw();
+        return;
+      }
+      if (!isPanning) return;
+      camera.offsetX = panStart.offsetX + (e.offsetX - panStart.x);
+      camera.offsetY = panStart.offsetY + (e.offsetY - panStart.y);
+      userAdjustedCamera.value = true;
+      draw();
+    }
+    function onCanvasMouseUp() {
+      if (draggingNode) { draggingNode = null; persist(); }
+      isPanning = false;
+      if (canvasEl.value) canvasEl.value.style.cursor = 'grab';
+    }
+    function onCanvasWheel(e) {
+      const rect = canvasEl.value.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const before = screenToWorld(mx, my);
+      camera.scale = Math.min(3, Math.max(0.2, camera.scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+      const after = worldToScreen(before.x, before.y);
+      camera.offsetX += mx - after.x;
+      camera.offsetY += my - after.y;
+      userAdjustedCamera.value = true;
+      draw();
+    }
+
+    // ── Paleta de color por tema (Canvas no puede leer var(--bs-*)) ──
+    const PALETTES = {
+      light: {
+        bg: '#ffffff', nodeText: '#212529', edgeDefault: '#adb5bd', edgeTree: '#198754', edgeActive: '#0dcaf0', weightText: '#495057',
+        nodeFill: { default: '#e9ecef', queued: '#cfe2ff', current: '#fff3cd', target: '#cff4fc', processed: '#d1e7dd' },
+        nodeStroke: { default: '#6c757d', queued: '#0d6efd', current: '#ffc107', target: '#0dcaf0', processed: '#198754' },
+      },
+      dark: {
+        bg: '#212529', nodeText: '#f8f9fa', edgeDefault: '#6c757d', edgeTree: '#75b798', edgeActive: '#6edff6', weightText: '#dee2e6',
+        nodeFill: { default: '#343a40', queued: '#052c65', current: '#664d03', target: '#032830', processed: '#0f5132' },
+        nodeStroke: { default: '#adb5bd', queued: '#6ea8fe', current: '#ffda6a', target: '#6edff6', processed: '#75b798' },
+      },
+    };
+    function palette() { return PALETTES[isDark.value ? 'dark' : 'light']; }
+
+    function nodeByLabel(label) { return nodes.value.find(n => n.label === label); }
+    function nodeState(label, step) {
+      if (!step) return 'default';
+      if (step.current === label) return 'current';
+      if (step.target === label) return 'target';
+      if (step.visited.includes(label)) return 'processed';
+      if (step.dist[label] !== Infinity) return 'queued';
+      return 'default';
+    }
+
+    function resizeCanvasToDisplaySize() {
+      const canvas = canvasEl.value, container = containerEl.value;
+      if (!canvas || !container) return;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = container.clientWidth * dpr;
+      canvas.height = container.clientHeight * dpr;
+      canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // Punto de control de la arista: el punto medio, desplazado en la perpendicular
+    // solo si en modo dirigido existe también la arista inversa (para que no se superpongan).
+    function edgeControlPoint(p1, p2, curved) {
+      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+      if (!curved) return { x: mx, y: my };
+      const dx = p2.x - p1.x, dy = p2.y - p1.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const bow = len * 0.2;
+      return { x: mx - dy / len * bow, y: my + dx / len * bow };
+    }
+
+    function draw() {
+      const canvas = canvasEl.value;
+      if (!canvas || !containerEl.value) return;
+      const ctx = canvas.getContext('2d');
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const pal = palette();
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = pal.bg;
+      ctx.fillRect(0, 0, w, h);
+
+      const step = currentStep.value;
+      const hl = step ? step.highlightEdge : null;
+      const r = NODE_R * camera.scale;
+      const edgeKeys = new Set(edges.value.map(e => e.key));
+
+      for (const e of edges.value) {
+        const from = nodeByLabel(e.a), to = nodeByLabel(e.b);
+        if (!from || !to) continue;
+        const p1 = worldToScreen(from.x, from.y), p2 = worldToScreen(to.x, to.y);
+        const curved = directed.value && edgeKeys.has(edgeKey(e.b, e.a, true));
+        const c = edgeControlPoint(p1, p2, curved);
+        const isTree = step && (step.pred[e.b] === e.a || (!directed.value && step.pred[e.a] === e.b));
+        const isActive = hl && ((hl.from === e.a && hl.to === e.b) || (!directed.value && hl.from === e.b && hl.to === e.a));
+        const color = isActive ? pal.edgeActive : isTree ? pal.edgeTree : pal.edgeDefault;
+
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = isActive ? 4 : isTree ? 2.5 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.quadraticCurveTo(c.x, c.y, p2.x, p2.y);
+        ctx.stroke();
+
+        if (directed.value) {
+          // Flecha en el borde del nodo destino, alineada con la tangente final de la curva.
+          const tx = p2.x - c.x, ty = p2.y - c.y;
+          const tl = Math.hypot(tx, ty) || 1;
+          const ux = tx / tl, uy = ty / tl;
+          const tipX = p2.x - ux * r, tipY = p2.y - uy * r;
+          const size = Math.max(7, 10 * camera.scale);
+          ctx.beginPath();
+          ctx.moveTo(tipX, tipY);
+          ctx.lineTo(tipX - ux * size - uy * size * 0.5, tipY - uy * size + ux * size * 0.5);
+          ctx.lineTo(tipX - ux * size + uy * size * 0.5, tipY - uy * size - ux * size * 0.5);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Peso en el punto medio de la curva (t = 0.5).
+        const lx = 0.25 * p1.x + 0.5 * c.x + 0.25 * p2.x, ly = 0.25 * p1.y + 0.5 * c.y + 0.25 * p2.y;
+        ctx.font = `bold ${Math.max(10, 13 * camera.scale)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const tw = ctx.measureText(String(e.w)).width + 6;
+        const th = Math.max(14, 17 * camera.scale);
+        ctx.fillStyle = pal.bg;
+        ctx.fillRect(lx - tw / 2, ly - th / 2, tw, th);
+        ctx.fillStyle = isActive || isTree ? color : pal.weightText;
+        ctx.fillText(String(e.w), lx, ly);
+        ctx.restore();
+      }
+
+      for (const n of nodes.value) {
+        const p = worldToScreen(n.x, n.y);
+        const state = nodeState(n.label, step);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = pal.nodeFill[state];
+        ctx.fill();
+        ctx.lineWidth = state === 'current' || state === 'target' ? 3 : 1.5;
+        ctx.strokeStyle = pal.nodeStroke[state];
+        ctx.stroke();
+
+        const dist = step ? step.dist[n.label] : Infinity;
+        ctx.fillStyle = pal.nodeText;
+        ctx.textAlign = 'center';
+        if (dist !== undefined && dist !== Infinity) {
+          ctx.font = `${Math.max(9, 11 * camera.scale)}px system-ui, sans-serif`;
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(n.label, p.x, p.y);
+          ctx.font = `${Math.max(8, 10 * camera.scale)}px system-ui, sans-serif`;
+          ctx.textBaseline = 'top';
+          ctx.fillText(`d=${dist}`, p.x, p.y);
+        } else {
+          ctx.font = `${Math.max(10, 13 * camera.scale)}px system-ui, sans-serif`;
+          ctx.textBaseline = 'middle';
+          ctx.fillText(n.label, p.x, p.y);
+        }
+      }
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+      draw();
+    }
+
+    // ── Ciclo de vida ──
+    function handleContainerResize() {
+      resizeCanvasToDisplaySize();
+      if (!userAdjustedCamera.value) fitToView();
+      draw();
+    }
+    // ResizeObserver y no window.resize: el canvas también cambia de tamaño cuando
+    // el panel de datos o la tabla de seguimiento cambian según su contenido.
+    const resizeObserver = new ResizeObserver(handleContainerResize);
+    onMounted(() => {
+      loadInitialState();
+      resizeCanvasToDisplaySize();
+      fitToView();
+      draw();
+      resizeObserver.observe(containerEl.value);
+    });
+    onBeforeUnmount(() => {
+      resizeObserver.disconnect();
+      stopAutoplay();
+    });
+
+    return {
+      nodes, weights, directed, toggleDirected, startId, onStartChange, PSEUDOCODE,
+      steps, currentStepIndex, currentStep, isAtEnd,
+      matrixCellClass, dpCellClass, isOpenRow, traceCellClass, fmt, fmtSet,
+      isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,
+      showEditor, graphTextDraft, graphError, applyGraphText,
+      newConfirm, handleNewClick, shareCopied, shareCurrentState,
+      isDark, toggleTheme, fitToView,
+      canvasEl, containerEl, onCanvasMouseDown, onCanvasMouseMove, onCanvasMouseUp, onCanvasWheel,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
