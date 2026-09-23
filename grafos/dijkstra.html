@@ -296,8 +296,14 @@ const DEFAULT_GRAPH_TEXT = '0-1:7\n0-2:3\n2-1:2\n2-3:8\n1-3:2';
 const DEFAULT_POSITIONS = { 0: { x: -120, y: -90 }, 2: { x: 120, y: -90 }, 1: { x: -120, y: 90 }, 3: { x: 120, y: 90 } };
 
 function edgeKey(a, b, directed) { return directed ? `${a}>${b}` : [a, b].sort().join('|'); }
-// Orden de los nodos en matriz, arrays y seguimiento: lexicográfico, con números en orden natural (2 antes que 10).
-function byLabel(a, b) { return String(a).localeCompare(String(b), 'es', { numeric: true }); }
+// Orden de los nodos en matriz, arrays y seguimiento: numérico si todas las etiquetas son números,
+// si no lexicográfico (con los números embebidos en orden natural: "A2" antes que "A10").
+function sortLabels(labels) {
+  const allNumeric = labels.every(l => l.trim() !== '' && !isNaN(l));
+  return [...labels].sort(allNumeric
+    ? (a, b) => Number(a) - Number(b)
+    : (a, b) => a.localeCompare(b, 'es', { numeric: true }));
+}
 function fmt(x) { return x === Infinity ? '∞' : x; }
 function fmtSet(labels) { return labels.length ? `{${labels.join(', ')}}` : '∅'; }
 // Etiqueta de nodo lista para KaTeX (se sacan los caracteres especiales de LaTeX).
@@ -401,7 +407,7 @@ function computeSteps(adjacency, nodeLabels, startId) {
       label: rows.length ? rows.length : 'Inicial',
       node: current,
       S: [...visited],
-      VS: nodeLabels.filter(l => !visited.has(l)).sort(byLabel),
+      VS: sortLabels(nodeLabels.filter(l => !visited.has(l))),
       w: current,
       d: { ...dist },
       p: { ...pred },
@@ -483,7 +489,7 @@ createApp({
     const containerEl = ref(null);
 
     const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
-    const sortedNodes = computed(() => [...nodes.value].sort((a, b) => byLabel(a.label, b.label)));
+    const sortedNodes = computed(() => sortLabels(nodes.value.map(n => n.label)).map(nodeByLabel));
     const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
 
     // ── Clases de las tablas ──
