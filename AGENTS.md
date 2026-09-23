@@ -2,8 +2,6 @@
 
 ## Instrucciones para el asistente
 
-No ejecutar ninguna acción de escritura de `git` ni `gh` (commit, push, crear/borrar branches, tags, releases, cambios de configuración del repo/Pages, etc.). Si hace falta alguna de estas acciones, indicar los comandos para que el usuario los corra a mano.
-
 Guía para crear nuevas visualizaciones didácticas de Programación Avanzada. Hay tres familias:
 - **Tablas de Programación Dinámica** (`dp/knapsack.html`, `dp/lcs.html`, `dp/edit-distance.html`): layout de 2 columnas, tabla HTML interactiva.
 - **Diagramas en Canvas** (`recursion/call-tree.html`): layout full-bleed, dibujo imperativo en `<canvas>`.
@@ -212,3 +210,12 @@ Para Canvas (Familia 2), seguir la sección "Familia 2" arriba y copiar `recursi
 6. Actualizar `currentState()`/`applyState()` con los campos propios (de ahí sale gratis autoguardado, "Nuevo" y compartir por URL). `resetToDefault()` vuelve a los valores de ejemplo hardcodeados.
 7. Antes de dar por terminada la visualización, revisar que no queden imports, clases CSS, variables o funciones sin usar.
 8. Actualizar `README.md` (fila nueva) y `index.html` (tarjeta nueva).
+
+## Commits
+
+- Mensajes simples y cortos, en español, describiendo el cambio.
+- Solamente el mensaje: sin coautorías, sin menciones a IA ni metadatos extra.
+- Revisar `git status` antes de `git add` y agregar solo los archivos que correspondan al cambio.
+- Un commit por cambio lógico; separar cambios independientes en commits distintos.
+- No ejecutar acciones destructivas o irreversibles con git (`reset --hard`, `clean -f`, `push --force`, reescribir historia publicada, borrar ramas o stashes). Ante la duda, no tocar.
+- Nunca pushear: el `push` lo hace el humano.
