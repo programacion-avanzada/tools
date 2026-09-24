@@ -19,6 +19,8 @@
 
   <style>
     html, body { height: 100%; margin: 0; }
+    /* Modo oscuro con el fondo de Dracula (solo esta herramienta, combina con la paleta de colores de nodos) */
+    [data-bs-theme=dark] { --bs-body-bg: #282a36; --bs-body-bg-rgb: 40, 42, 54; }
     #app { display: flex; flex-direction: column; height: 100vh; }
     .canvas-wrap { flex: 1 1 auto; position: relative; overflow: hidden; min-height: 0; }
     svg.graph { display: block; width: 100%; height: 100%; cursor: grab; user-select: none; }
@@ -81,7 +83,7 @@
             <text v-if="s.w" :x="s.lx" :y="s.ly" font-size="13" font-weight="bold" :fill="pal.weightText">{{ s.w }}</text>
           </g>
           <g v-for="n in nodes" :key="n.label">
-            <circle :cx="n.x" :cy="n.y" :r="NODE_R" :fill="n.color || pal.nodeFill" :stroke="pal.nodeStroke" stroke-width="1.5" @mousedown.stop="onNodeMouseDown(n)" />
+            <circle :cx="n.x" :cy="n.y" :r="NODE_R" :fill="n.color || pal.nodeFill" :stroke="n.color ? darken(n.color) : pal.nodeStroke" stroke-width="1.5" @mousedown.stop="onNodeMouseDown(n)" />
             <text :x="n.x" :y="n.y" font-size="13" :fill="n.color ? textColorOn(n.color) : pal.nodeText" pointer-events="none">{{ n.label }}</text>
           </g>
         </g>
@@ -146,6 +148,11 @@ const DASHES = { solid: null, dotted: '1 4', dashed: '8 5' };
 function edgeStyleKey(e) { return `${e.a}-${e.b}`; }
 
 // Texto oscuro o claro (también de Dracula) según la luminancia relativa del fondo (WCAG).
+// Mismo color con menos brillo (R, G y B escalados por igual: conserva el tono), para el borde de un nodo pintado.
+function darken(hex, factor = 0.7) {
+  return '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * factor).toString(16).padStart(2, '0')).join('');
+}
+
 function textColorOn(hex) {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
     .map(c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -236,7 +243,7 @@ createApp({
     // ── Paleta por tema: colores inline en el SVG, así el export los lleva consigo ──
     const PALETTES = {
       light: { nodeText: '#212529', edge: '#6c757d', weightText: '#495057', nodeFill: '#e9ecef', nodeStroke: '#6c757d' },
-      dark: { nodeText: '#f8f9fa', edge: '#adb5bd', weightText: '#dee2e6', nodeFill: '#343a40', nodeStroke: '#adb5bd' },
+      dark: { nodeText: '#f8f8f2', edge: '#adb5bd', weightText: '#dee2e6', nodeFill: '#44475a', nodeStroke: '#6272a4' },
     };
     const pal = computed(() => PALETTES[isDark.value ? 'dark' : 'light']);
 
@@ -404,7 +411,7 @@ createApp({
       const lines = [`${directed.value ? 'digraph' : 'graph'} G {`, '  node [shape=circle];'];
       for (const n of nodes.value) {
         const attrs = [`pos="${Math.round(n.x)},${Math.round(-n.y)}!"`];
-        if (n.color) attrs.push('style=filled', `fillcolor="${n.color}"`, `fontcolor="${textColorOn(n.color)}"`);
+        if (n.color) attrs.push('style=filled', `fillcolor="${n.color}"`, `color="${darken(n.color)}"`, `fontcolor="${textColorOn(n.color)}"`);
         lines.push(`  ${dotId(n.label)} [${attrs.join(', ')}];`);
       }
       for (const e of edges.value) {
@@ -487,7 +494,7 @@ createApp({
           objectName: `n${i}`,
           shape: pptx.ShapeType.ellipse,
           x: X(n.x - NODE_R), y: Y(n.y - NODE_R), w: 2 * NODE_R * k, h: 2 * NODE_R * k, margin: 0,
-          fill: { color: hex(n.color || P.nodeFill) }, line: { color: hex(P.nodeStroke), width: pt(1.5) },
+          fill: { color: hex(n.color || P.nodeFill) }, line: { color: hex(n.color ? darken(n.color) : P.nodeStroke), width: pt(1.5) },
           align: 'center', valign: 'middle', fontFace: 'Arial', fontSize: pt(13),
           color: hex(n.color ? textColorOn(n.color) : P.nodeText),
         });
@@ -616,7 +623,7 @@ createApp({
     onBeforeUnmount(() => resizeObserver.disconnect());
 
     return {
-      NODE_R, DRACULA, textColorOn, paintColor, togglePaint, LINE_STYLES, DASHES, paintStyle, toggleLineStyle, paintEdge, camera, nodes, edgeShapes, pal, directed, toggleDirected,
+      NODE_R, DRACULA, textColorOn, darken, paintColor, togglePaint, LINE_STYLES, DASHES, paintStyle, toggleLineStyle, paintEdge, camera, nodes, edgeShapes, pal, directed, toggleDirected,
       showEditor, graphTextDraft, applyGraphText,
       newConfirm, handleNewClick, shareCopied, shareCurrentState,
       copied, downloadSVG, downloadPNG, copySVG, copyPNG, downloadDOT, downloadPPTX,
