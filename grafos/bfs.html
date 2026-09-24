@@ -107,11 +107,11 @@
         <div class="card-body p-2">
           <table class="table table-sm table-bordered text-center mb-0" style="width: auto;">
             <thead>
-              <tr><th class="dp-header-cell px-2 py-1" v-for="n in nodes" :key="n.label">{{ n.label }}</th></tr>
+              <tr><th class="dp-header-cell px-2 py-1" v-for="n in sortedNodes" :key="n.label">{{ n.label }}</th></tr>
             </thead>
             <tbody>
               <tr>
-                <td class="px-2 py-1" v-for="n in nodes" :key="n.label"
+                <td class="px-2 py-1" v-for="n in sortedNodes" :key="n.label"
                   :class="currentStep && currentStep.distances[n.label] !== Infinity ? 'table-success' : ''">
                   {{ currentStep && currentStep.distances[n.label] !== Infinity ? currentStep.distances[n.label] : '∞' }}
                 </td>
@@ -195,6 +195,15 @@ const PSEUDOCODE = [
 ];
 
 const DEFAULT_GRAPH_TEXT = 'A-B\nA-C\nB-D\nC-D\nD-E\nE-F';
+
+// Orden de los nodos en matriz, arrays y seguimiento: numérico si todas las etiquetas son números,
+// si no lexicográfico ("10" antes que "2", "A10" antes que "A2").
+function sortLabels(labels) {
+  const allNumeric = labels.every(l => l.trim() !== '' && !isNaN(l));
+  return [...labels].sort(allNumeric
+    ? (a, b) => Number(a) - Number(b)
+    : (a, b) => a.localeCompare(b, 'es'));
+}
 
 function edgeKey(a, b) { return [a, b].sort().join('|'); }
 
@@ -335,6 +344,7 @@ createApp({
     const containerEl = ref(null);
 
     const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
+    const sortedNodes = computed(() => sortLabels(nodes.value.map(n => n.label)).map(nodeByLabel));
     const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
 
     // ── Persistencia ──
@@ -647,7 +657,7 @@ createApp({
     });
 
     return {
-      nodes, startId, onStartChange, PSEUDOCODE,
+      nodes, sortedNodes, startId, onStartChange, PSEUDOCODE,
       steps, currentStepIndex, currentStep, isAtEnd,
       isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,
       showEditor, graphTextDraft, applyGraphText,

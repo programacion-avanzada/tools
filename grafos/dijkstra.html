@@ -297,12 +297,12 @@ const DEFAULT_POSITIONS = { 0: { x: -120, y: -90 }, 2: { x: 120, y: -90 }, 1: { 
 
 function edgeKey(a, b, directed) { return directed ? `${a}>${b}` : [a, b].sort().join('|'); }
 // Orden de los nodos en matriz, arrays y seguimiento: numérico si todas las etiquetas son números,
-// si no lexicográfico (con los números embebidos en orden natural: "A2" antes que "A10").
+// si no lexicográfico ("10" antes que "2", "A10" antes que "A2").
 function sortLabels(labels) {
   const allNumeric = labels.every(l => l.trim() !== '' && !isNaN(l));
   return [...labels].sort(allNumeric
     ? (a, b) => Number(a) - Number(b)
-    : (a, b) => a.localeCompare(b, 'es', { numeric: true }));
+    : (a, b) => a.localeCompare(b, 'es'));
 }
 function fmt(x) { return x === Infinity ? '∞' : x; }
 function fmtSet(labels) { return labels.length ? `{${labels.join(', ')}}` : '∅'; }

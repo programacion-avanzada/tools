@@ -189,13 +189,13 @@ function textColorOn(hex) {
 }
 const EXPORT_MARGIN = 16; // 1em
 
-// Orden de filas/columnas de la matriz (igual que en dijkstra.html): numérico si todas las etiquetas
-// son números, si no lexicográfico con los números embebidos en orden natural ("A2" antes que "A10").
+// Orden de los nodos en matriz, arrays y seguimiento: numérico si todas las etiquetas son números,
+// si no lexicográfico ("10" antes que "2", "A10" antes que "A2").
 function sortLabels(labels) {
   const allNumeric = labels.every(l => l.trim() !== '' && !isNaN(l));
   return [...labels].sort(allNumeric
     ? (a, b) => Number(a) - Number(b)
-    : (a, b) => a.localeCompare(b, 'es', { numeric: true }));
+    : (a, b) => a.localeCompare(b, 'es'));
 }
 
 function edgeKey(a, b, directed) { return directed ? `${a}>${b}` : [a, b].sort().join('|'); }
