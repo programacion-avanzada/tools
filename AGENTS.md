@@ -88,6 +88,7 @@ Para algoritmos paso a paso sobre un grafo genérico (DFS/BFS y similares), dond
 - **Panel de código**: un pseudocódigo fijo (array de strings, mismo texto que el enunciado del algoritmo) renderizado línea por línea con `white-space: pre`; la(s) línea(s) activa(s) de `steps[currentStepIndex].activeLines` llevan una clase que las resalta (`--bs-warning-bg-subtle`). Debajo, un badge de veredicto (ícono + color + frase en lenguaje llano) igual al patrón `verdictBadge` de Familia 1, tomado directo de `steps[currentStepIndex].badge`.
 - **Estructuras de datos como overlays flotantes**: pila/cola/visitados se muestran en cards `position:absolute` ancladas a una esquina fija de `.canvas-wrap` (no a `worldToScreen`, porque no siguen a ningún nodo en particular) — mismo mecanismo que el panel de ecuación de Familia 2.
 - **Sin KaTeX** si el algoritmo no tiene fórmulas que renderizar (no cargar la librería de arranque; sumarla solo si hace falta).
+- **Variante sin algoritmo (`grafos/editor.html`)**: solo el grafo a todo el ancho, sin panel de código ni pasos. Dibuja con un `<svg>` en el template de Vue (no canvas) porque su objetivo es exportar: el `<g>` del grafo se serializa tal cual a SVG y se rasteriza a PNG transparente. Colores inline desde `PALETTES` (no `var(--bs-*)`) para que el archivo exportado los lleve. Compartir incluye `{graphText, directed, colors, styles}` (sin posiciones).
 
 ## Persistencia, "Nuevo" y Compartir por URL (obligatorio)
 

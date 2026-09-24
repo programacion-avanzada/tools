@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Editor de Grafos</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .canvas-wrap { flex: 1 1 auto; position: relative; overflow: hidden; min-height: 0; }
+    svg.graph { display: block; width: 100%; height: 100%; cursor: grab; user-select: none; }
+    svg.graph circle { cursor: move; }
+    svg.graph.painting circle, .edge-hit { cursor: crosshair; }
+    .paint-panel { position: absolute; top: .75rem; left: .75rem; }
+    .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--bs-border-color); padding: 0; line-height: 1; font-size: .75rem; }
+    .line-btn { padding: 0 .25rem; height: 26px; }
+    /* box-shadow y no outline: Bootstrap anula el outline de un botón con foco tras un clic */
+    .swatch.active, .line-btn.active { box-shadow: 0 0 0 2px var(--bs-body-bg), 0 0 0 5px var(--bs-emphasis-color); }
+    .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
+    .empty-state-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .editor-panel { position: absolute; bottom: .75rem; left: .75rem; width: 300px; max-width: calc(100% - 1.5rem); }
+    @media (max-width: 768px) {
+      #app { height: auto; }
+      .canvas-wrap { flex: none; height: 420px; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand mb-0 h5">✏️ Editor de Grafos</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">Grafos · Editor</span>
+      <button class="btn btn-sm btn-outline-light" @click="toggleDirected" title="Cambiar entre grafo dirigido y no dirigido">
+        {{ directed ? '➡️ Dirigido' : '↔️ No dirigido' }}
+      </button>
+      <div class="btn-group btn-group-sm" v-if="nodes.length">
+        <button class="btn btn-outline-light" @click="downloadSVG" title="Descargar SVG">⬇️ SVG</button>
+        <button class="btn btn-outline-light" @click="copySVG" title="Copiar el SVG al portapapeles">{{ copied === 'svg' ? '✅' : '📋' }} SVG</button>
+        <button class="btn btn-outline-light" @click="downloadPNG" title="Descargar PNG (fondo transparente)">⬇️ PNG</button>
+        <button class="btn btn-outline-light" @click="copyPNG" title="Copiar el PNG al portapapeles (fondo transparente)">{{ copied === 'png' ? '✅' : '📋' }} PNG</button>
+        <button class="btn btn-outline-light" @click="downloadDOT" title="Descargar en formato DOT (Graphviz)">⬇️ DOT</button>
+      </div>
+      <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="showEditor = !showEditor" title="Editar el grafo">✏️ Editar grafo</button>
+      <button class="btn btn-sm btn-outline-light" @click="fitToView(true)" title="Ajustar vista" v-if="nodes.length">🎯</button>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver al grafo de ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir este grafo (texto y dirigido, sin posiciones)">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="canvas-wrap" ref="containerEl">
+    <svg class="graph" :class="{ painting: paintColor !== null }" @mousedown="onSvgMouseDown" @mousemove="onSvgMouseMove" @mouseup="onSvgMouseUp" @mouseleave="onSvgMouseUp" @wheel.prevent="onSvgWheel">
+      <g :transform="`translate(${camera.offsetX},${camera.offsetY}) scale(${camera.scale})`">
+        <!-- Solo el grafo, en coordenadas de mundo: esto es lo que se exporta -->
+        <g ref="graphEl" font-family="system-ui, sans-serif" text-anchor="middle" dominant-baseline="central">
+          <g v-for="s in edgeShapes" :key="s.key">
+            <path :d="s.d" fill="none" :stroke="pal.edge" stroke-width="1.5" stroke-linecap="round" :stroke-dasharray="DASHES[s.edge.style]" />
+            <!-- Zona de clic ancha e invisible, solo en modo pintar líneas (así no ensucia el export) -->
+            <path v-if="paintStyle !== null" class="edge-hit" :d="s.d" fill="none" stroke="transparent" stroke-width="14" @mousedown.stop="paintEdge(s.edge)" />
+            <polygon v-if="s.arrow" :points="s.arrow" :fill="pal.edge" />
+            <text v-if="s.w" :x="s.lx" :y="s.ly" font-size="13" font-weight="bold" :fill="pal.weightText">{{ s.w }}</text>
+          </g>
+          <g v-for="n in nodes" :key="n.label">
+            <circle :cx="n.x" :cy="n.y" :r="NODE_R" :fill="n.color || pal.nodeFill" :stroke="pal.nodeStroke" stroke-width="1.5" @mousedown.stop="onNodeMouseDown(n)" />
+            <text :x="n.x" :y="n.y" font-size="13" :fill="n.color ? textColorOn(n.color) : pal.nodeText" pointer-events="none">{{ n.label }}</text>
+          </g>
+        </g>
+      </g>
+    </svg>
+
+    <div class="card shadow-sm paint-panel" v-if="nodes.length">
+      <div class="card-body p-2 d-flex gap-1 align-items-center">
+        <button v-for="c in DRACULA" :key="c.hex" class="swatch" :class="{ active: paintColor === c.hex }"
+          :style="{ background: c.hex }" :title="`Pintar nodos de ${c.name}`" @click="togglePaint(c.hex)"></button>
+        <button class="swatch bg-body" :class="{ active: paintColor === '' }" title="Quitar color de los nodos" @click="togglePaint('')">✖</button>
+        <div class="vr mx-1"></div>
+        <button v-for="(name, st) in LINE_STYLES" :key="st" class="btn btn-sm btn-outline-secondary line-btn" :class="{ active: paintStyle === st }"
+          :title="`Pintar aristas con línea ${name}`" @click="toggleLineStyle(st)">
+          <svg width="28" height="10"><line x1="3" y1="5" x2="25" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round" :stroke-dasharray="DASHES[st]" /></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="empty-state-overlay" v-if="!nodes.length">
+      <div class="card shadow-sm" style="max-width: 380px;">
+        <div class="card-body text-center">
+          <div class="fs-1">✏️</div>
+          <p class="mt-2 mb-0 text-muted">Cargá un grafo con "✏️ Editar grafo" para empezar.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm editor-panel" v-if="showEditor">
+      <div class="card-body p-2">
+        <label class="form-label small text-muted mb-1">
+          Aristas, una por línea o separadas por coma: <code>A-B</code> o con costo <code>A-B:3</code>. Nodo aislado: <code>G</code>.
+        </label>
+        <textarea class="form-control form-control-sm mb-2" rows="6" v-model="graphTextDraft" style="font-family: monospace"></textarea>
+        <button class="btn btn-dark btn-sm w-100" @click="applyGraphText">▶ Aplicar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar text-center small border-top">
+    <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } = Vue;
+
+const DEFAULT_GRAPH_TEXT = '0-1:7\n0-2:3\n2-1:2\n2-3:8\n1-3:2';
+const DEFAULT_POSITIONS = { 0: { x: -120, y: -90 }, 2: { x: 120, y: -90 }, 1: { x: -120, y: 90 }, 3: { x: 120, y: 90 } };
+const NODE_R = 22;
+// Colores de acento del tema Dracula (https://draculatheme.com/contribute).
+const DRACULA = [
+  { name: 'cyan', hex: '#8be9fd' }, { name: 'verde', hex: '#50fa7b' }, { name: 'naranja', hex: '#ffb86c' },
+  { name: 'rosa', hex: '#ff79c6' }, { name: 'violeta', hex: '#bd93f9' }, { name: 'rojo', hex: '#ff5555' },
+  { name: 'amarillo', hex: '#f1fa8c' }, { name: 'gris azulado', hex: '#6272a4' },
+];
+
+const LINE_STYLES = { solid: 'normal', dotted: 'punteada', dashed: 'de guiones' };
+const DASHES = { solid: null, dotted: '1 4', dashed: '8 5' };
+// Clave estable del estilo de una arista (no depende de si el grafo es dirigido).
+function edgeStyleKey(e) { return `${e.a}-${e.b}`; }
+
+// Texto oscuro o claro (también de Dracula) según la luminancia relativa del fondo (WCAG).
+function textColorOn(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? '#282a36' : '#f8f8f2';
+}
+const EXPORT_MARGIN = 16; // 1em
+
+function edgeKey(a, b, directed) { return directed ? `${a}>${b}` : [a, b].sort().join('|'); }
+
+// ── Parseo del grafo: "A-B:3" declara una arista con costo "3" (texto libre, opcional),
+// "G" sola declara un nodo aislado.
+function parseGraphText(text, directed) {
+  const tokens = text.split(/[\n,]/).map(t => t.trim()).filter(Boolean);
+  const nodeLabels = [];
+  const nodeSet = new Set();
+  const edgeSet = new Set();
+  const edges = [];
+  function addNode(label) {
+    if (!nodeSet.has(label)) { nodeSet.add(label); nodeLabels.push(label); }
+  }
+  for (const tok of tokens) {
+    const [edgePart, weightPart = ''] = tok.split(':').map(s => s.trim());
+    const parts = edgePart.split('-').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const [a, b] = parts;
+      addNode(a); addNode(b);
+      if (a === b) continue;
+      const key = edgeKey(a, b, directed);
+      if (!edgeSet.has(key)) { edgeSet.add(key); edges.push({ a, b, w: weightPart, key }); }
+    } else if (parts.length === 1) {
+      addNode(parts[0]);
+    }
+  }
+  return { nodeLabels, edges };
+}
+
+// ── Layout inicial circular: los nodos que ya tenían posición la conservan,
+// los nuevos se ubican en círculo según su índice en la lista total de nodos.
+function layoutNodes(nodeLabels, existingPositions) {
+  const R = 160;
+  const positions = {};
+  nodeLabels.forEach((label, i) => {
+    if (existingPositions[label]) { positions[label] = existingPositions[label]; return; }
+    const angle = (i / nodeLabels.length) * Math.PI * 2 - Math.PI / 2;
+    positions[label] = { x: Math.cos(angle) * R, y: Math.sin(angle) * R };
+  });
+  return positions;
+}
+
+// Punto de control de la arista: el punto medio, desplazado en la perpendicular
+// solo si en modo dirigido existe también la arista inversa (para que no se superpongan).
+function edgeControlPoint(p1, p2, curved) {
+  const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+  if (!curved) return { x: mx, y: my };
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const bow = len * 0.2;
+  return { x: mx - dy / len * bow, y: my + dx / len * bow };
+}
+
+function downloadBlob(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-grafos-editor';
+    const PADDING = 50;
+
+    const nodes = ref([]);
+    const edges = ref([]);
+    const directed = ref(true);
+
+    const showEditor = ref(true);
+    const graphTextDraft = ref(DEFAULT_GRAPH_TEXT);
+
+    const camera = reactive({ offsetX: 0, offsetY: 0, scale: 1 });
+    const userAdjustedCamera = ref(false);
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+
+    const containerEl = ref(null);
+    const graphEl = ref(null);
+
+    // ── Paleta por tema: colores inline en el SVG, así el export los lleva consigo ──
+    const PALETTES = {
+      light: { nodeText: '#212529', edge: '#6c757d', weightText: '#495057', nodeFill: '#e9ecef', nodeStroke: '#6c757d' },
+      dark: { nodeText: '#f8f9fa', edge: '#adb5bd', weightText: '#dee2e6', nodeFill: '#343a40', nodeStroke: '#adb5bd' },
+    };
+    const pal = computed(() => PALETTES[isDark.value ? 'dark' : 'light']);
+
+    // ── Geometría de aristas en coordenadas de mundo: depende de x/y de los nodos,
+    // así que al arrastrar un nodo sus aristas lo siguen en vivo ──
+    const edgeShapes = computed(() => {
+      const byLabel = new Map(nodes.value.map(n => [n.label, n]));
+      const keys = new Set(edges.value.map(e => e.key));
+      return edges.value.map(e => {
+        const p1 = byLabel.get(e.a), p2 = byLabel.get(e.b);
+        const curved = directed.value && keys.has(edgeKey(e.b, e.a, true));
+        const c = edgeControlPoint(p1, p2, curved);
+        const shape = { key: e.key, edge: e, w: e.w, d: `M${p1.x},${p1.y} Q${c.x},${c.y} ${p2.x},${p2.y}`, arrow: null };
+
+        if (directed.value) {
+          // Flecha en el borde del nodo destino, alineada con la tangente final de la curva.
+          const tx = p2.x - c.x, ty = p2.y - c.y;
+          const tl = Math.hypot(tx, ty) || 1;
+          const ux = tx / tl, uy = ty / tl;
+          const tipX = p2.x - ux * NODE_R, tipY = p2.y - uy * NODE_R;
+          const size = 10;
+          shape.arrow = `${tipX},${tipY} ${tipX - ux * size - uy * size * 0.5},${tipY - uy * size + ux * size * 0.5} ${tipX - ux * size + uy * size * 0.5},${tipY - uy * size - ux * size * 0.5}`;
+        }
+
+        // Costo junto al punto medio de la curva (t = 0.5), corrido en la perpendicular
+        // (sin caja de fondo: en el export transparente no taparía nada).
+        const mx = 0.25 * p1.x + 0.5 * c.x + 0.25 * p2.x, my = 0.25 * p1.y + 0.5 * c.y + 0.25 * p2.y;
+        const dx = p2.x - p1.x, dy = p2.y - p1.y;
+        const len = Math.hypot(dx, dy) || 1;
+        shape.lx = mx - dy / len * 12;
+        shape.ly = my + dx / len * 12;
+        return shape;
+      });
+    });
+
+    // ── Persistencia (localStorage guarda también posiciones; compartir, colores pero no posiciones) ──
+    function positionsMap() {
+      const m = {};
+      for (const n of nodes.value) m[n.label] = { x: n.x, y: n.y };
+      return m;
+    }
+    function colorsMap() {
+      const m = {};
+      for (const n of nodes.value) if (n.color) m[n.label] = n.color;
+      return m;
+    }
+    function stylesMap() {
+      const m = {};
+      for (const e of edges.value) if (e.style !== 'solid') m[edgeStyleKey(e)] = e.style;
+      return m;
+    }
+    function currentState() {
+      return { graphText: graphTextDraft.value, positions: positionsMap(), colors: colorsMap(), styles: stylesMap(), directed: directed.value };
+    }
+    function applyState(data) {
+      graphTextDraft.value = data.graphText ?? graphTextDraft.value;
+      directed.value = data.directed ?? directed.value;
+      const { nodeLabels, edges: parsedEdges } = parseGraphText(graphTextDraft.value, directed.value);
+      const posMap = layoutNodes(nodeLabels, data.positions || {});
+      const colors = data.colors ?? colorsMap();
+      nodes.value = nodeLabels.map(label => ({ label, x: posMap[label].x, y: posMap[label].y, color: colors[label] || '' }));
+      const styles = data.styles ?? stylesMap();
+      edges.value = parsedEdges.map(e => ({ ...e, style: styles[edgeStyleKey(e)] || 'solid' }));
+    }
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
+    }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) { resetToDefault(); return; }
+        applyState(JSON.parse(raw));
+      } catch (e) { resetToDefault(); }
+    }
+
+    // ── Compartir por URL (#d=...): solo texto y dirigido, sin posiciones ──
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer el grafo de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const { positions, ...shared } = currentState();
+      const url = `${location.origin}${location.pathname}#d=${encodeState(shared)}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo" (2 pasos) ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      newConfirm.value = false;
+      applyState({ graphText: DEFAULT_GRAPH_TEXT, positions: DEFAULT_POSITIONS, colors: {}, styles: {}, directed: true });
+      persist();
+      userAdjustedCamera.value = false;
+      nextTick(fitToView);
+    }
+
+    // ── Editar grafo ──
+    function applyGraphText() {
+      applyState({ graphText: graphTextDraft.value, positions: positionsMap() });
+      persist();
+      userAdjustedCamera.value = false;
+      nextTick(fitToView);
+    }
+    function toggleDirected() {
+      applyState({ ...currentState(), directed: !directed.value });
+      persist();
+    }
+
+    // ── Exportar: el <g> del grafo, recortado a su bounding box + 1em, fondo transparente ──
+    function buildSVG() {
+      const b = graphEl.value.getBBox();
+      const x = b.x - EXPORT_MARGIN, y = b.y - EXPORT_MARGIN;
+      const w = Math.ceil(b.width + EXPORT_MARGIN * 2), h = Math.ceil(b.height + EXPORT_MARGIN * 2);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${x} ${y} ${w} ${h}">${graphEl.value.outerHTML}</svg>`;
+      return { svg, w, h };
+    }
+    function svgToPngBlob() {
+      const { svg, w, h } = buildSVG();
+      const SCALE = 2; // nitidez en pantallas/diapositivas
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = w * SCALE;
+          canvas.height = h * SCALE;
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(resolve, 'image/png');
+        };
+        img.onerror = reject;
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      });
+    }
+    const copied = ref('');
+    function flashCopied(kind) {
+      copied.value = kind;
+      setTimeout(() => { if (copied.value === kind) copied.value = ''; }, 2000);
+    }
+    // DOT (Graphviz): colores y tipos de línea como atributos; pos con "!" fija el acomodo
+    // actual para neato/fdp (dot lo ignora y hace su propio layout). En Graphviz la Y crece hacia arriba.
+    function dotId(s) { return `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`; }
+    function buildDOT() {
+      const op = directed.value ? '->' : '--';
+      const lines = [`${directed.value ? 'digraph' : 'graph'} G {`, '  node [shape=circle];'];
+      for (const n of nodes.value) {
+        const attrs = [`pos="${Math.round(n.x)},${Math.round(-n.y)}!"`];
+        if (n.color) attrs.push('style=filled', `fillcolor="${n.color}"`, `fontcolor="${textColorOn(n.color)}"`);
+        lines.push(`  ${dotId(n.label)} [${attrs.join(', ')}];`);
+      }
+      for (const e of edges.value) {
+        const attrs = [];
+        if (e.w) attrs.push(`label=${dotId(e.w)}`);
+        if (e.style !== 'solid') attrs.push(`style=${e.style}`);
+        lines.push(`  ${dotId(e.a)} ${op} ${dotId(e.b)}${attrs.length ? ` [${attrs.join(', ')}]` : ''};`);
+      }
+      return lines.join('\n') + '\n}\n';
+    }
+    function downloadDOT() { downloadBlob(new Blob([buildDOT()], { type: 'text/vnd.graphviz' }), 'grafo.dot'); }
+    function downloadSVG() { downloadBlob(new Blob([buildSVG().svg], { type: 'image/svg+xml' }), 'grafo.svg'); }
+    async function downloadPNG() { downloadBlob(await svgToPngBlob(), 'grafo.png'); }
+    function copySVG() {
+      const { svg } = buildSVG();
+      if (!navigator.clipboard?.writeText) { downloadSVG(); return; }
+      navigator.clipboard.writeText(svg).then(() => flashCopied('svg')).catch(downloadSVG);
+    }
+    function copyPNG() {
+      // La promesa va directo al ClipboardItem para no perder el gesto del usuario (Safari).
+      if (!window.ClipboardItem || !navigator.clipboard?.write) { downloadPNG(); return; }
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': svgToPngBlob() })])
+        .then(() => flashCopied('png'))
+        .catch(downloadPNG);
+    }
+
+    // ── Cámara: pan / zoom ──
+    function screenToWorld(x, y) {
+      return { x: (x - camera.offsetX) / camera.scale, y: (y - camera.offsetY) / camera.scale };
+    }
+    function fitToView(manual) {
+      if (!nodes.value.length || !containerEl.value) return;
+      const xs = nodes.value.map(n => n.x), ys = nodes.value.map(n => n.y);
+      const minX = Math.min(...xs) - NODE_R, maxX = Math.max(...xs) + NODE_R;
+      const minY = Math.min(...ys) - NODE_R, maxY = Math.max(...ys) + NODE_R;
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const contentW = Math.max(maxX - minX, 1), contentH = Math.max(maxY - minY, 1);
+      camera.scale = Math.max(0.2, Math.min((w - PADDING * 2) / contentW, (h - PADDING * 2) / contentH, 1.6));
+      camera.offsetX = w / 2 - (minX + maxX) / 2 * camera.scale;
+      camera.offsetY = h / 2 - (minY + maxY) / 2 * camera.scale;
+      if (manual) userAdjustedCamera.value = false;
+    }
+
+    // ── Mouse: el mousedown sobre un nodo lo toma para arrastrar (@mousedown.stop en el <circle>);
+    // sobre el fondo, pan de cámara ──
+    function mousePos(e) {
+      const rect = containerEl.value.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+    let isPanning = false, panStart = null;
+    let draggingNode = null;
+    // ── Pintar: con un color elegido, el clic en un nodo lo pinta en vez de arrastrarlo;
+    // con un tipo de línea elegido, el clic en una arista le cambia el trazo.
+    // '' = quitar color; null = modo apagado (volver a clickear lo mismo lo apaga). Un solo modo a la vez ──
+    const paintColor = ref(null);
+    const paintStyle = ref(null);
+    function togglePaint(hex) { paintStyle.value = null; paintColor.value = paintColor.value === hex ? null : hex; }
+    function toggleLineStyle(st) { paintColor.value = null; paintStyle.value = paintStyle.value === st ? null : st; }
+    function paintEdge(e) {
+      e.style = paintStyle.value;
+      persist();
+    }
+    function onNodeMouseDown(n) {
+      if (paintColor.value === null) { draggingNode = n; return; }
+      n.color = paintColor.value;
+      persist();
+    }
+    function onSvgMouseDown(e) {
+      const m = mousePos(e);
+      isPanning = true;
+      panStart = { x: m.x, y: m.y, offsetX: camera.offsetX, offsetY: camera.offsetY };
+    }
+    function onSvgMouseMove(e) {
+      const m = mousePos(e);
+      if (draggingNode) {
+        const w = screenToWorld(m.x, m.y);
+        draggingNode.x = w.x;
+        draggingNode.y = w.y;
+        return;
+      }
+      if (!isPanning) return;
+      camera.offsetX = panStart.offsetX + (m.x - panStart.x);
+      camera.offsetY = panStart.offsetY + (m.y - panStart.y);
+      userAdjustedCamera.value = true;
+    }
+    function onSvgMouseUp() {
+      if (draggingNode) { draggingNode = null; persist(); }
+      isPanning = false;
+    }
+    function onSvgWheel(e) {
+      const m = mousePos(e);
+      const before = screenToWorld(m.x, m.y);
+      camera.scale = Math.min(3, Math.max(0.2, camera.scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+      camera.offsetX = m.x - before.x * camera.scale;
+      camera.offsetY = m.y - before.y * camera.scale;
+      userAdjustedCamera.value = true;
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+    }
+
+    // ── Ciclo de vida ──
+    const resizeObserver = new ResizeObserver(() => { if (!userAdjustedCamera.value) fitToView(); });
+    onMounted(() => {
+      loadInitialState();
+      fitToView();
+      resizeObserver.observe(containerEl.value);
+    });
+    onBeforeUnmount(() => resizeObserver.disconnect());
+
+    return {
+      NODE_R, DRACULA, textColorOn, paintColor, togglePaint, LINE_STYLES, DASHES, paintStyle, toggleLineStyle, paintEdge, camera, nodes, edgeShapes, pal, directed, toggleDirected,
+      showEditor, graphTextDraft, applyGraphText,
+      newConfirm, handleNewClick, shareCopied, shareCurrentState,
+      copied, downloadSVG, downloadPNG, copySVG, copyPNG, downloadDOT,
+      isDark, toggleTheme, fitToView,
+      containerEl, graphEl, onSvgMouseDown, onSvgMouseMove, onSvgMouseUp, onSvgWheel, onNodeMouseDown,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

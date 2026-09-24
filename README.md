@@ -45,11 +45,12 @@ Permite:
 
 | Archivo | Tema | Complejidad |
 |---|---|---|
+| [`grafos/editor.html`](grafos/editor.html) | Editor de Grafos (dibujar y exportar) | — |
 | [`grafos/dfs.html`](grafos/dfs.html) | DFS — Recorrido en Profundidad (pila explícita) | O(V+E) |
 | [`grafos/bfs.html`](grafos/bfs.html) | BFS — Recorrido en Anchura (cola + array de distancias) | O(V+E) |
 | [`grafos/dijkstra.html`](grafos/dijkstra.html) | Dijkstra — Caminos Mínimos (cola de prioridad) | O((V+E)·log V) |
 
-Las tres permiten:
+DFS, BFS y Dijkstra permiten:
 - Cargar cualquier grafo no dirigido escribiendo su lista de aristas (`A-B`, una por línea o separadas por coma; un token sin guion declara un nodo aislado); el orden de las aristas define el orden de exploración de los vecinos.
 - Elegir el nodo inicial con un selector, y recorrer el algoritmo paso a paso (manual, con autoplay a velocidad ajustable, o reiniciando la animación sin perder el grafo cargado).
 - Ver en todo momento la estructura de datos del algoritmo (pila en DFS, cola + array de distancias en BFS), el pseudocódigo con la línea actual resaltada, y una explicación en lenguaje llano de cada paso.
@@ -62,6 +63,14 @@ Dijkstra además:
 - Arma paso a paso la tabla de seguimiento clásica (Iteración | S | V − S | w | D[x]/P[x]), agregando una fila por cada nodo que pasa a S y resaltando los valores que cambian.
 - Plantea con KaTeX, en cada relajación, `D[w] = min(D[w], D[v] + C(v,w))` con los valores sustituidos.
 - Autoguardado en el navegador (localStorage), modo claro/oscuro, botón "🆕 Nuevo" y "🔗 Compartir" (grafo + posiciones + nodo inicial codificados en la URL), igual que el resto de las herramientas.
+
+El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
+- Mismo formato de texto (`A-B` o `A-B:costo`, el costo es texto libre y opcional), dirigido o no dirigido, nodos arrastrables con las aristas siguiéndolos en vivo.
+- Paleta de colores Dracula: con un color elegido, cada clic en un nodo lo pinta (el texto pasa a claro u oscuro según el fondo); volver a clickear el color apaga el modo pintar, y ✖ quita el color.
+- Mismo mecanismo para las aristas: se elige un tipo de línea (normal, punteada o de guiones) y cada clic en una arista le cambia el trazo.
+- Exporta a SVG o PNG con fondo transparente y un margen de 1em, descargando o copiando al portapapeles. Los colores son los del tema actual.
+- Exporta también a DOT (Graphviz) con colores, tipos de línea, costos como `label` y la posición actual de cada nodo (`pos`, la respetan `neato -n`/`fdp`; `dot` arma su propio layout).
+- "🔗 Compartir" incluye el texto del grafo, si es dirigido, los colores de los nodos y los tipos de línea (no las posiciones: al abrir el link se usa el layout circular). El autoguardado local sí recuerda las posiciones.
 
 ## Cómo usarlas
 
@@ -76,6 +85,6 @@ make serve   # sirve el directorio en http://localhost:4000 (PORT=xxxx para camb
 - **Bootstrap 5.3.3** — layout y componentes UI.
 - **Vue 3** (`vue.global.js`, Composition API) — estado reactivo e interacción.
 - **KaTeX 0.16.10** — renderizado de fórmulas matemáticas.
-- **Canvas 2D** — dibujo imperativo del diagrama en `recursion/call-tree.html` y `grafos/`.
+- **Canvas 2D** — dibujo imperativo del diagrama en `recursion/call-tree.html` y `grafos/` (salvo `grafos/editor.html`, que dibuja en SVG para poder exportarlo).
 
 Ver [AGENTS.md](AGENTS.md) para la convención/plantilla que siguen estos archivos y las guías para crear visualizaciones nuevas.
