@@ -149,7 +149,7 @@
           <div class="card-body">
             <p class="text-muted text-center py-3 mb-0" v-if="!currentStep">Cargá un grafo y presioná ▶️ o "Paso siguiente" para empezar.</p>
             <div v-else>
-              <span class="badge fs-6" :class="currentStep.badge.cls">{{ currentStep.badge.icon }} {{ currentStep.badge.text }}</span>
+              <span class="badge fs-6 text-wrap text-start" :class="currentStep.badge.cls">{{ currentStep.badge.icon }} {{ currentStep.badge.text }}</span>
               <p class="small text-muted mt-3 mb-0">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
             </div>
           </div>
