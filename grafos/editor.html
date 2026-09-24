@@ -33,6 +33,9 @@
     .swatch.active, .line-btn.active { box-shadow: 0 0 0 2px var(--bs-body-bg), 0 0 0 5px var(--bs-emphasis-color); }
     .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
     .empty-state-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .matrix-panel { position: absolute; top: .75rem; right: .75rem; max-width: calc(100% - 1.5rem); max-height: calc(100% - 1.5rem); overflow: auto; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .mini-table td, .mini-table th { padding: .15rem .5rem; }
     .editor-panel { position: absolute; bottom: .75rem; left: .75rem; width: 300px; max-width: calc(100% - 1.5rem); }
     @media (max-width: 768px) {
       #app { height: auto; }
@@ -59,6 +62,7 @@
         <button class="btn btn-outline-light" @click="downloadPPTX" title="Descargar una diapositiva con figuras editables (PowerPoint / Google Slides)">⬇️ PPTX</button>
       </div>
       <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="showEditor = !showEditor" title="Editar el grafo">✏️ Editar grafo</button>
+      <button class="btn btn-sm" :class="showMatrix ? 'btn-light' : 'btn-outline-light'" @click="showMatrix = !showMatrix" title="Mostrar/ocultar la matriz de adyacencia" v-if="nodes.length">🧮 Matriz</button>
       <button class="btn btn-sm btn-outline-light" @click="fitToView(true)" title="Ajustar vista" v-if="nodes.length">🎯</button>
       <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver al grafo de ejemplo">
         {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
@@ -100,6 +104,31 @@
           :title="`Pintar aristas con línea ${name}`" @click="toggleLineStyle(st)">
           <svg width="28" height="10"><line x1="3" y1="5" x2="25" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round" :stroke-dasharray="DASHES[st]" /></svg>
         </button>
+      </div>
+    </div>
+
+    <div class="card shadow-sm matrix-panel" v-if="showMatrix && nodes.length">
+      <div class="card-header py-1 px-2 small fw-semibold d-flex align-items-center gap-2">
+        🧮 Matriz de adyacencia
+        <span class="badge bg-secondary">{{ matrix.weighted ? 'con pesos' : 'booleana' }}</span>
+        <span class="badge bg-secondary" v-if="!directed">simétrica</span>
+        <button type="button" class="btn-close ms-auto" style="font-size: .6rem" title="Ocultar" @click="showMatrix = false"></button>
+      </div>
+      <div class="card-body p-2">
+        <table class="table table-sm table-bordered text-center mb-0 mini-table small" style="width: auto;">
+          <thead>
+            <tr>
+              <th class="dp-header-cell"></th>
+              <th class="dp-header-cell" v-for="c in matrix.labels" :key="c">{{ c }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, i) in matrix.rows" :key="matrix.labels[i]">
+              <th class="dp-header-cell">{{ matrix.labels[i] }}</th>
+              <td v-for="(v, j) in row" :key="j" :class="v.edge ? 'fw-semibold' : 'text-muted'">{{ v.text }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -159,6 +188,15 @@ function textColorOn(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? '#282a36' : '#f8f8f2';
 }
 const EXPORT_MARGIN = 16; // 1em
+
+// Orden de filas/columnas de la matriz (igual que en dijkstra.html): numérico si todas las etiquetas
+// son números, si no lexicográfico con los números embebidos en orden natural ("A2" antes que "A10").
+function sortLabels(labels) {
+  const allNumeric = labels.every(l => l.trim() !== '' && !isNaN(l));
+  return [...labels].sort(allNumeric
+    ? (a, b) => Number(a) - Number(b)
+    : (a, b) => a.localeCompare(b, 'es', { numeric: true }));
+}
 
 function edgeKey(a, b, directed) { return directed ? `${a}>${b}` : [a, b].sort().join('|'); }
 
@@ -231,6 +269,7 @@ createApp({
     const directed = ref(true);
 
     const showEditor = ref(true);
+    const showMatrix = ref(true);
     const graphTextDraft = ref(DEFAULT_GRAPH_TEXT);
 
     const camera = reactive({ offsetX: 0, offsetY: 0, scale: 1 });
@@ -277,6 +316,24 @@ createApp({
         shape.ly = my + dx / len * 12;
         return shape;
       });
+    });
+
+    // ── Matriz de adyacencia: con pesos si alguna arista tiene costo (sin costo vale 1, sin arista ∞),
+    // si no booleana (true/false, como en Warshall). No dirigido → espejada ──
+    const matrix = computed(() => {
+      const labels = sortLabels(nodes.value.map(n => n.label));
+      const weighted = edges.value.some(e => e.w);
+      const cells = new Map();
+      for (const e of edges.value) {
+        const text = weighted ? (e.w || '1') : 'true';
+        cells.set(`${e.a}\u0000${e.b}`, text);
+        if (!directed.value) cells.set(`${e.b}\u0000${e.a}`, text);
+      }
+      const rows = labels.map(r => labels.map(c => {
+        const text = cells.get(`${r}\u0000${c}`);
+        return text === undefined ? { text: weighted ? '∞' : 'false', edge: false } : { text, edge: true };
+      }));
+      return { labels, rows, weighted };
     });
 
     // ── Persistencia (localStorage guarda también posiciones; compartir, colores pero no posiciones) ──
@@ -624,7 +681,7 @@ createApp({
 
     return {
       NODE_R, DRACULA, textColorOn, darken, paintColor, togglePaint, LINE_STYLES, DASHES, paintStyle, toggleLineStyle, paintEdge, camera, nodes, edgeShapes, pal, directed, toggleDirected,
-      showEditor, graphTextDraft, applyGraphText,
+      showEditor, graphTextDraft, applyGraphText, showMatrix, matrix,
       newConfirm, handleNewClick, shareCopied, shareCurrentState,
       copied, downloadSVG, downloadPNG, copySVG, copyPNG, downloadDOT, downloadPPTX,
       isDark, toggleTheme, fitToView,

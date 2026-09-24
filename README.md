@@ -68,6 +68,7 @@ El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
 - Mismo formato de texto (`A-B` o `A-B:costo`, el costo es texto libre y opcional), dirigido o no dirigido, nodos arrastrables con las aristas siguiéndolos en vivo.
 - Paleta de colores Dracula: con un color elegido, cada clic en un nodo lo pinta (el texto pasa a claro u oscuro según el fondo); volver a clickear el color apaga el modo pintar, y ✖ quita el color.
 - Mismo mecanismo para las aristas: se elige un tipo de línea (normal, punteada o de guiones) y cada clic en una arista le cambia el trazo.
+- Panel ocultable con la matriz de adyacencia (botón "🧮 Matriz"): con pesos si alguna arista tiene costo (sin arista = ∞, arista sin costo = 1), si no booleana (`true`/`false`, como para Warshall). Si el grafo es no dirigido, queda espejada. Filas y columnas en orden numérico o lexicográfico, igual que en Dijkstra.
 - Exporta a SVG o PNG con fondo transparente y un margen de 1em, descargando o copiando al portapapeles. Los colores son los del tema actual.
 - Exporta a PPTX (PowerPoint / Google Slides): una diapositiva 16:9 con figuras nativas editables. Las aristas son conectores enganchados a los nodos (al mover un nodo en la presentación, sus aristas lo siguen); los costos son cuadros de texto sueltos que no se mueven solos.
 - Exporta también a DOT (Graphviz) con colores, tipos de línea, costos como `label` y la posición actual de cada nodo (`pos`, la respetan `neato -n`/`fdp`; `dot` arma su propio layout).
