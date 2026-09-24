@@ -54,6 +54,7 @@
         <button class="btn btn-outline-light" @click="downloadPNG" title="Descargar PNG (fondo transparente)">⬇️ PNG</button>
         <button class="btn btn-outline-light" @click="copyPNG" title="Copiar el PNG al portapapeles (fondo transparente)">{{ copied === 'png' ? '✅' : '📋' }} PNG</button>
         <button class="btn btn-outline-light" @click="downloadDOT" title="Descargar en formato DOT (Graphviz)">⬇️ DOT</button>
+        <button class="btn btn-outline-light" @click="downloadPPTX" title="Descargar una diapositiva con figuras editables (PowerPoint / Google Slides)">⬇️ PPTX</button>
       </div>
       <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="showEditor = !showEditor" title="Editar el grafo">✏️ Editar grafo</button>
       <button class="btn btn-sm btn-outline-light" @click="fitToView(true)" title="Ajustar vista" v-if="nodes.length">🎯</button>
@@ -414,6 +415,101 @@ createApp({
       }
       return lines.join('\n') + '\n}\n';
     }
+    // PPTX: una diapositiva 16:9 con figuras nativas, editables en PowerPoint/Google Slides.
+    // Siempre paleta clara: la diapositiva tiene fondo blanco.
+    // PptxGenJS no genera conectores, así que las aristas salen como líneas con nombre ("e0", "e1"...)
+    // y después se reescriben en el XML como <p:cxnSp> pegados a los nodos ("n0", "n1"...):
+    // al mover un nodo en la presentación, sus aristas lo siguen. Los costos son texto suelto (no lo siguen).
+    // Puntos de conexión de la elipse: 8, en sentido antihorario desde arriba (0 = arriba, 2 = izquierda...).
+    function ellipseSite(angleDeg) {
+      const k = ((Math.round((-90 - angleDeg) / 45) % 8) + 8) % 8;
+      const a = (-90 - 45 * k) * Math.PI / 180;
+      return { k, dx: Math.cos(a), dy: Math.sin(a) };
+    }
+    // PptxGenJS pesa ~460 KB: se carga recién la primera vez que se exporta.
+    let pptxLib = null;
+    function loadPptxLib() {
+      return pptxLib ??= new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js';
+        script.onload = resolve;
+        script.onerror = () => { pptxLib = null; reject(new Error('No se pudo cargar PptxGenJS')); };
+        document.head.appendChild(script);
+      });
+    }
+    async function downloadPPTX() {
+      await loadPptxLib();
+      const P = PALETTES.light;
+      const hex = c => c.replace('#', '');
+      const SLIDE_W = 13.333, SLIDE_H = 7.5, MARGIN = 0.5;
+      const xs = nodes.value.map(n => n.x), ys = nodes.value.map(n => n.y);
+      const minX = Math.min(...xs) - NODE_R, maxX = Math.max(...xs) + NODE_R;
+      const minY = Math.min(...ys) - NODE_R, maxY = Math.max(...ys) + NODE_R;
+      // pulgadas por unidad de mundo: que entre en la diapositiva, sin agrandar de más un grafo chico
+      const k = Math.min((SLIDE_W - 2 * MARGIN) / (maxX - minX || 1), (SLIDE_H - 2 * MARGIN) / (maxY - minY || 1), 1 / 60);
+      const ox = (SLIDE_W - (maxX - minX) * k) / 2, oy = (SLIDE_H - (maxY - minY) * k) / 2;
+      const X = x => ox + (x - minX) * k, Y = y => oy + (y - minY) * k;
+      const pt = px => px * k * 72;
+
+      const pptx = new PptxGenJS();
+      pptx.layout = 'LAYOUT_WIDE';
+      const slide = pptx.addSlide();
+      const nodeIndex = new Map(nodes.value.map((n, i) => [n.label, i]));
+      const keys = new Set(edges.value.map(e => e.key));
+      const PPTX_DASH = { solid: 'solid', dotted: 'sysDot', dashed: 'dash' };
+      const links = []; // por arista: [nodo origen, punto, nodo destino, punto]
+
+      edgeShapes.value.forEach((s, i) => {
+        const e = s.edge, p1 = nodes.value[nodeIndex.get(e.a)], p2 = nodes.value[nodeIndex.get(e.b)];
+        const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
+        // A→B y B→A: cada una sale y llega corrida 30° hacia su lado, así caen en puntos distintos.
+        const bend = directed.value && keys.has(edgeKey(e.b, e.a, true)) ? 30 : 0;
+        const s1 = ellipseSite(ang + bend), s2 = ellipseSite(ang + 180 - bend);
+        links.push([nodeIndex.get(e.a), s1.k, nodeIndex.get(e.b), s2.k]);
+        const x1 = X(p1.x + s1.dx * NODE_R), y1 = Y(p1.y + s1.dy * NODE_R);
+        const x2 = X(p2.x + s2.dx * NODE_R), y2 = Y(p2.y + s2.dy * NODE_R);
+        slide.addShape(pptx.ShapeType.line, {
+          objectName: `e${i}`,
+          x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
+          flipH: x2 < x1, flipV: y2 < y1,
+          line: { color: hex(P.edge), width: pt(1.5), dashType: PPTX_DASH[e.style], endArrowType: directed.value ? 'triangle' : 'none' },
+        });
+        if (e.w) {
+          const bw = 0.8, bh = 0.3;
+          slide.addText(e.w, {
+            x: X(s.lx) - bw / 2, y: Y(s.ly) - bh / 2, w: bw, h: bh, margin: 0,
+            align: 'center', valign: 'middle', fontFace: 'Arial', fontSize: pt(13), bold: true, color: hex(P.weightText),
+          });
+        }
+      });
+      nodes.value.forEach((n, i) => {
+        slide.addText(n.label, {
+          objectName: `n${i}`,
+          shape: pptx.ShapeType.ellipse,
+          x: X(n.x - NODE_R), y: Y(n.y - NODE_R), w: 2 * NODE_R * k, h: 2 * NODE_R * k, margin: 0,
+          fill: { color: hex(n.color || P.nodeFill) }, line: { color: hex(P.nodeStroke), width: pt(1.5) },
+          align: 'center', valign: 'middle', fontFace: 'Arial', fontSize: pt(13),
+          color: hex(n.color ? textColorOn(n.color) : P.nodeText),
+        });
+      });
+
+      // JSZip viene incluido en pptxgen.bundle.js.
+      const zip = await JSZip.loadAsync(await pptx.write({ outputType: 'arraybuffer' }));
+      const path = 'ppt/slides/slide1.xml';
+      let xml = await zip.file(path).async('string');
+      const ids = {};
+      for (const [, id, name] of xml.matchAll(/<p:cNvPr id="(\d+)" name="([ne]\d+)"/g)) ids[name] = id;
+      xml = xml.replace(/<p:sp>(?:(?!<\/p:sp>).)*?name="e(\d+)".*?<\/p:sp>/gs, (sp, i) => {
+        const [a, ka, b, kb] = links[i];
+        return sp
+          .replace(/^<p:sp>/, '<p:cxnSp>').replace(/<\/p:sp>$/, '</p:cxnSp>')
+          .replace('<p:nvSpPr>', '<p:nvCxnSpPr>').replace('</p:nvSpPr>', '</p:nvCxnSpPr>')
+          .replace('<p:cNvSpPr/>', `<p:cNvCxnSpPr><a:stCxn id="${ids['n' + a]}" idx="${ka}"/><a:endCxn id="${ids['n' + b]}" idx="${kb}"/></p:cNvCxnSpPr>`)
+          .replace('prst="line"', 'prst="straightConnector1"');
+      });
+      zip.file(path, xml);
+      downloadBlob(await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }), 'grafo.pptx');
+    }
     function downloadDOT() { downloadBlob(new Blob([buildDOT()], { type: 'text/vnd.graphviz' }), 'grafo.dot'); }
     function downloadSVG() { downloadBlob(new Blob([buildSVG().svg], { type: 'image/svg+xml' }), 'grafo.svg'); }
     async function downloadPNG() { downloadBlob(await svgToPngBlob(), 'grafo.png'); }
@@ -523,7 +619,7 @@ createApp({
       NODE_R, DRACULA, textColorOn, paintColor, togglePaint, LINE_STYLES, DASHES, paintStyle, toggleLineStyle, paintEdge, camera, nodes, edgeShapes, pal, directed, toggleDirected,
       showEditor, graphTextDraft, applyGraphText,
       newConfirm, handleNewClick, shareCopied, shareCurrentState,
-      copied, downloadSVG, downloadPNG, copySVG, copyPNG, downloadDOT,
+      copied, downloadSVG, downloadPNG, copySVG, copyPNG, downloadDOT, downloadPPTX,
       isDark, toggleTheme, fitToView,
       containerEl, graphEl, onSvgMouseDown, onSvgMouseMove, onSvgMouseUp, onSvgWheel, onNodeMouseDown,
     };

@@ -69,6 +69,7 @@ El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
 - Paleta de colores Dracula: con un color elegido, cada clic en un nodo lo pinta (el texto pasa a claro u oscuro según el fondo); volver a clickear el color apaga el modo pintar, y ✖ quita el color.
 - Mismo mecanismo para las aristas: se elige un tipo de línea (normal, punteada o de guiones) y cada clic en una arista le cambia el trazo.
 - Exporta a SVG o PNG con fondo transparente y un margen de 1em, descargando o copiando al portapapeles. Los colores son los del tema actual.
+- Exporta a PPTX (PowerPoint / Google Slides): una diapositiva 16:9 con figuras nativas editables. Las aristas son conectores enganchados a los nodos (al mover un nodo en la presentación, sus aristas lo siguen); los costos son cuadros de texto sueltos que no se mueven solos.
 - Exporta también a DOT (Graphviz) con colores, tipos de línea, costos como `label` y la posición actual de cada nodo (`pos`, la respetan `neato -n`/`fdp`; `dot` arma su propio layout).
 - "🔗 Compartir" incluye el texto del grafo, si es dirigido, los colores de los nodos y los tipos de línea (no las posiciones: al abrir el link se usa el layout circular). El autoguardado local sí recuerda las posiciones.
 
@@ -85,6 +86,7 @@ make serve   # sirve el directorio en http://localhost:4000 (PORT=xxxx para camb
 - **Bootstrap 5.3.3** — layout y componentes UI.
 - **Vue 3** (`vue.global.js`, Composition API) — estado reactivo e interacción.
 - **KaTeX 0.16.10** — renderizado de fórmulas matemáticas.
+- **PptxGenJS 4.0.1** — solo en `grafos/editor.html`, para el export a PPTX (se carga al exportar, no al abrir la página).
 - **Canvas 2D** — dibujo imperativo del diagrama en `recursion/call-tree.html` y `grafos/` (salvo `grafos/editor.html`, que dibuja en SVG para poder exportarlo).
 
 Ver [AGENTS.md](AGENTS.md) para la convención/plantilla que siguen estos archivos y las guías para crear visualizaciones nuevas.
