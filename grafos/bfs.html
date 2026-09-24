@@ -27,7 +27,7 @@
     .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
     .empty-state-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
     .stack-panel { position: absolute; top: .75rem; left: .75rem; width: 150px; max-height: 45%; overflow-y: auto; }
-    .visited-panel { position: absolute; top: .75rem; right: .75rem; width: 220px; max-height: 45%; overflow-y: auto; }
+    .visited-panel { position: absolute; top: .75rem; right: .75rem; max-width: calc(100% - 1.5rem); max-height: 45%; overflow: auto; }
     .editor-panel { position: absolute; bottom: .75rem; left: .75rem; width: 340px; }
     .pseudo-code { font-family: Consolas, monospace; font-size: .82rem; white-space: pre; padding: .5rem 0; }
     .pseudo-line { padding: .1rem .75rem; }
@@ -104,7 +104,7 @@
 
       <div class="card shadow-sm visited-panel" v-if="nodes.length">
         <div class="card-header py-1 px-2 small fw-semibold">📏 Distancias</div>
-        <div class="card-body p-2" style="overflow-x: auto;">
+        <div class="card-body p-2">
           <table class="table table-sm table-bordered text-center mb-0" style="width: auto;">
             <thead>
               <tr><th class="dp-header-cell px-2 py-1" v-for="n in nodes" :key="n.label">{{ n.label }}</th></tr>
