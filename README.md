@@ -49,8 +49,9 @@ Permite:
 | [`grafos/dfs.html`](grafos/dfs.html) | DFS — Recorrido en Profundidad (pila explícita) | O(V+E) |
 | [`grafos/bfs.html`](grafos/bfs.html) | BFS — Recorrido en Anchura (cola + array de distancias) | O(V+E) |
 | [`grafos/dijkstra.html`](grafos/dijkstra.html) | Dijkstra — Caminos Mínimos (cola de prioridad) | O((V+E)·log V) |
+| [`grafos/prim.html`](grafos/prim.html) | Prim — Árbol de Expansión Mínima (cola de prioridad de aristas) | O(E·log E) |
 
-DFS, BFS y Dijkstra permiten:
+DFS, BFS, Dijkstra y Prim permiten:
 - Cargar cualquier grafo no dirigido escribiendo su lista de aristas (`A-B`, una por línea o separadas por coma; un token sin guion declara un nodo aislado); el orden de las aristas define el orden de exploración de los vecinos.
 - Elegir el nodo inicial con un selector, y recorrer el algoritmo paso a paso (manual, con autoplay a velocidad ajustable, o reiniciando la animación sin perder el grafo cargado).
 - Ver en todo momento la estructura de datos del algoritmo (pila en DFS, cola + array de distancias en BFS), el pseudocódigo con la línea actual resaltada, y una explicación en lenguaje llano de cada paso.
@@ -63,6 +64,12 @@ Dijkstra además:
 - Arma paso a paso la tabla de seguimiento clásica (Iteración | S | V − S | w | D[x]/P[x]), agregando una fila por cada nodo que pasa a S y resaltando los valores que cambian.
 - Plantea con KaTeX, en cada relajación, `D[w] = min(D[w], D[v] + C(v,w))` con los valores sustituidos.
 - Autoguardado en el navegador (localStorage), modo claro/oscuro, botón "🆕 Nuevo" y "🔗 Compartir" (grafo + posiciones + nodo inicial codificados en la URL), igual que el resto de las herramientas.
+
+Prim además:
+- Grafo no dirigido con pesos (`A-B:3`; sin peso vale 1, se admiten pesos negativos).
+- Cola de prioridad de aristas `(peso, u, v)` sin actualización de prioridades: las entradas cuyo `v` ya está en el MST se ven tachadas y se descartan al extraerlas.
+- Tabla de seguimiento (Iteración | V | V_MST | Arista seleccionada | Peso | W), con las aristas descartadas como filas tachadas; lista de aristas del MST y peso total W siempre a la vista.
+- Aristas del MST en verde, descartadas punteadas. Si el grafo no es conexo, lo avisa y devuelve el árbol de la componente del vértice inicial.
 
 El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
 - Mismo formato de texto (`A-B` o `A-B:costo`, el costo es texto libre y opcional), dirigido o no dirigido, nodos arrastrables con las aristas siguiéndolos en vivo.
