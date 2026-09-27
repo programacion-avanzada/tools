@@ -51,6 +51,7 @@ Permite:
 | [`grafos/dijkstra.html`](grafos/dijkstra.html) | Dijkstra — Caminos Mínimos (cola de prioridad) | O((V+E)·log V) |
 | [`grafos/prim.html`](grafos/prim.html) | Prim — Árbol de Expansión Mínima (cola de prioridad de aristas) | O(E·log E) |
 | [`grafos/kruskal.html`](grafos/kruskal.html) | Kruskal — Árbol de Expansión Mínima (cola de aristas + Union-Find) | O(E·log E) |
+| [`grafos/union-find.html`](grafos/union-find.html) | Union-Find — Comparación de variantes (quick-find, quick-union, weighted, path halving) | — |
 
 DFS, BFS, Dijkstra y Prim permiten:
 - Cargar cualquier grafo no dirigido escribiendo su lista de aristas (`A-B`, una por línea o separadas por coma; un token sin guion declara un nodo aislado); el orden de las aristas define el orden de exploración de los vecinos.
@@ -77,6 +78,12 @@ Kruskal además:
 - Cola de prioridad con todas las aristas a la vista: las ya extraídas quedan marcadas como aceptadas o tachadas (descartadas).
 - Union-Find ingenuo (`union(u, v)`: `padre[find(v)] ← find(u)`) mostrado como vector `padre[]` y como bosque de padres, con el camino de cada `find` y el `padre[]` que cambia en cada `union` resaltados. En el grafo, los vértices de un mismo subárbol comparten color.
 - Tabla de seguimiento (Iteración | Arista aᵢ | w(aᵢ) | find(u) / find(v) | Subárboles | W(MST)), con las aristas descartadas como filas tachadas. Si el grafo no es conexo, devuelve un bosque.
+
+El comparador de Union-Find no dibuja grafos: corre la misma secuencia de operaciones sobre las 4 variantes de Sedgewick a la vez, en una grilla 2×2.
+- Elementos `0..N−1`. Operaciones en vivo (`union(p, q)` / `find(p)`) o como secuencia de texto (`4-3` = union, `?9` = find); cada operación es un paso del historial, navegable como el resto de las herramientas.
+- Cada variante muestra `id[]` (y `sz[]` en las weighted), su bosque, el camino que recorrió `find`, las celdas que cambiaron y una explicación de lo que hizo. `union(p, q)` sigue la convención del libro: `id[find(p)] ← find(q)`; en las weighted, el árbol más chico cuelga del más grande (si empatan, el de q cuelga del de p). La compresión es por *halving*: `id[p] ← id[id[p]]`.
+- Pseudocódigo de `find` y `union` de cada variante, con las líneas que cambian respecto de la variante anterior resaltadas.
+- Tabla comparativa con los accesos a `id[]`/`sz[]` (última operación y acumulado) y la altura máxima del bosque de cada variante.
 
 El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
 - Mismo formato de texto (`A-B` o `A-B:costo`, el costo es texto libre y opcional), dirigido o no dirigido, nodos arrastrables con las aristas siguiéndolos en vivo.

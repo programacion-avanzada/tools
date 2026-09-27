@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Union-Find — Comparación de variantes</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .main-row { flex: 1 1 auto; display: flex; min-height: 0; }
+    .grid-wrap { flex: 3 1 0; position: relative; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: .5rem; padding: .5rem; }
+    .quadrant { min-height: 0; min-width: 0; }
+    .quadrant .card-body { overflow: auto; }
+    .side-panel { flex: 0 0 290px; overflow-y: auto; border-left: 1px solid var(--bs-border-color); }
+    .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
+    .editor-panel { position: absolute; bottom: 1rem; left: 1rem; width: 320px; max-width: calc(100% - 2rem); z-index: 10; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .mini-table td, .mini-table th { padding: .1rem .4rem; }
+    .cell-changed { background-color: var(--bs-warning-bg-subtle) !important; }
+    .cell-path { background-color: var(--bs-info-bg-subtle) !important; }
+    .uf-link { stroke: var(--bs-secondary-color); stroke-width: 1.5; }
+    .uf-link.on-path { stroke: var(--bs-info); stroke-width: 3; }
+    .uf-link.changed { stroke: var(--bs-warning); stroke-width: 3; }
+    .uf-arrowhead { fill: var(--bs-secondary-color); }
+    .uf-node { fill: var(--bs-secondary-bg); stroke: var(--bs-secondary-color); stroke-width: 1.5; }
+    .uf-node.on-path { stroke: var(--bs-info); stroke-width: 3; }
+    .uf-label { fill: var(--bs-emphasis-color); font-size: 12px; }
+    .pseudo-code { font-family: Consolas, monospace; font-size: .72rem; white-space: pre; padding: .25rem 0; }
+    .pseudo-line { padding: 0 .5rem; min-height: 1.1em; }
+    .pseudo-diff { background: var(--bs-success-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
+    .history-list { max-height: 260px; overflow-y: auto; }
+    @media (max-width: 768px) {
+      #app { height: auto; }
+      .main-row { flex-direction: column; }
+      .grid-wrap { grid-template-columns: 1fr; grid-template-rows: none; }
+      .side-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand mb-0 h5">🧩 Union-Find — Comparación de variantes</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">Union-Find · N = {{ n }}</span>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-light" @click="restartAnimation" title="Volver al estado inicial">⏮</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Operación anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Operación siguiente">⏩</button>
+      </div>
+      <input type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
+        v-model.number="speedMs" title="Velocidad de reproducción" />
+      <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="toggleEditor" title="Editar N y la secuencia de operaciones">✏️ Secuencia</button>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver a la secuencia de ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir esta secuencia">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="main-row">
+    <div class="grid-wrap">
+      <div class="card quadrant" v-for="({ variant, vs, forest }, k) in panels" :key="variant.name">
+        <div class="card-header py-1 px-2 small d-flex align-items-center gap-2 flex-wrap">
+          <span class="fw-semibold">{{ variant.name }}</span>
+          <span class="badge bg-secondary">{{ variant.cost }}</span>
+          <span class="badge bg-primary ms-auto" title="Accesos a id[]/sz[] acumulados">Σ {{ vs.total }} accesos</span>
+        </div>
+        <div class="card-body p-2">
+          <span class="badge text-wrap mb-2 d-inline-block text-start" :class="currentStep.op ? 'bg-info text-dark' : 'bg-secondary'">{{ vs.text }}</span>
+          <div class="d-flex flex-wrap gap-2 align-items-start">
+            <div>
+              <table class="table table-sm table-bordered text-center mb-2 mini-table small" style="width: auto;">
+                <tbody>
+                  <tr>
+                    <th class="dp-header-cell">i</th>
+                    <th class="dp-header-cell" v-for="(_, i) in vs.id" :key="i">{{ i }}</th>
+                  </tr>
+                  <tr>
+                    <th class="dp-header-cell">id[i]</th>
+                    <td v-for="(v, i) in vs.id" :key="i" :class="cellClass(vs, 'id', i)"
+                      :title="v === i ? `${i} es raíz` : ''">{{ v }}</td>
+                  </tr>
+                  <tr v-if="variant.weighted">
+                    <th class="dp-header-cell">sz[i]</th>
+                    <td v-for="(v, i) in vs.sz" :key="i" :class="cellClass(vs, 'sz', i)">{{ v }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <svg :width="forest.width" :height="forest.height" class="d-block mb-2">
+                <defs>
+                  <marker :id="`uf-arrow-${k}`" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto">
+                    <path d="M0,0 L10,5 L0,10 z" class="uf-arrowhead" />
+                  </marker>
+                </defs>
+                <line v-for="l in forest.links" :key="l.from" class="uf-link" :class="linkClass(vs, l)"
+                  :x1="l.x1" :y1="l.y1" :x2="l.x2" :y2="l.y2" :marker-end="`url(#uf-arrow-${k})`" />
+                <g v-for="nd in forest.nodes" :key="nd.label">
+                  <circle :cx="nd.x" :cy="nd.y" :r="UF_R" class="uf-node" :class="{ 'on-path': onPath(vs, nd.label) }" />
+                  <text :x="nd.x" :y="nd.y" class="uf-label" text-anchor="middle" dominant-baseline="central">{{ nd.label }}</text>
+                </g>
+              </svg>
+            </div>
+            <div class="pseudo-code border rounded">
+              <div v-for="(line, idx) in variant.code" :key="idx" class="pseudo-line" :class="{ 'pseudo-diff': line.diff }">{{ line.text }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm editor-panel" v-if="showEditor">
+        <div class="card-body p-2">
+          <label class="form-label small text-muted mb-1">Cantidad de elementos (0 a N − 1)</label>
+          <input type="number" class="form-control form-control-sm mb-2" min="1" :max="MAX_N" v-model.number="nDraft" />
+          <label class="form-label small text-muted mb-1">
+            Operaciones, una por línea o separadas por coma: <code>4-3</code> = union(4, 3), <code>?9</code> = find(9).
+          </label>
+          <textarea class="form-control form-control-sm mb-2" rows="6" v-model="opsDraft" style="font-family: monospace"></textarea>
+          <div class="alert alert-danger small py-1 px-2 mb-2" v-if="editorError">{{ editorError }}</div>
+          <button class="btn btn-dark btn-sm w-100" @click="applyEditor">▶ Aplicar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-panel">
+      <div class="p-3">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">➕ Nueva operación</div>
+          <div class="card-body">
+            <div class="d-flex gap-2 mb-2">
+              <input type="number" class="form-control form-control-sm" min="0" :max="n - 1" v-model.number="liveP" placeholder="p" title="p" />
+              <input type="number" class="form-control form-control-sm" min="0" :max="n - 1" v-model.number="liveQ" placeholder="q" title="q"
+                @keyup.enter="addOp('union')" />
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-dark btn-sm flex-fill" @click="addOp('union')">union(p, q)</button>
+              <button class="btn btn-outline-secondary btn-sm flex-fill" @click="addOp('find')">find(p)</button>
+            </div>
+            <div class="alert alert-danger small py-1 px-2 mt-2 mb-0" v-if="liveError">{{ liveError }}</div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">📜 Historial</div>
+          <div class="list-group list-group-flush small history-list">
+            <button v-for="(s, idx) in steps" :key="idx" type="button"
+              class="list-group-item list-group-item-action py-1" :class="{ active: idx === currentStepIndex }"
+              @click="goToStep(idx)">
+              {{ s.op ? `${idx}. ${opLabel(s.op)}` : 'Estado inicial' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">📊 Comparación</div>
+          <div class="card-body p-2">
+            <table class="table table-sm table-bordered text-center align-middle mb-0 small">
+              <thead>
+                <tr>
+                  <th class="dp-header-cell">Variante</th>
+                  <th class="dp-header-cell" title="Accesos a id[]/sz[] de la última operación">Último</th>
+                  <th class="dp-header-cell" title="Accesos a id[]/sz[] acumulados">Total</th>
+                  <th class="dp-header-cell" title="Máxima cantidad de enlaces de un elemento a su raíz">Altura</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(variant, k) in VARIANTS" :key="variant.name">
+                  <td class="text-start">{{ variant.name }}</td>
+                  <td>{{ currentStep.variants[k].acc }}</td>
+                  <td class="fw-semibold">{{ currentStep.variants[k].total }}</td>
+                  <td>{{ currentStep.variants[k].height }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="small text-muted mt-2 mb-0">Accesos = lecturas + escrituras de id[] y sz[].</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header fw-semibold">Leyenda</div>
+          <ul class="list-group list-group-flush small">
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-info text-dark">&nbsp;&nbsp;</span> Camino que recorre find</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-warning text-dark">&nbsp;&nbsp;</span> Celda que cambia / enlace nuevo</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-success">&nbsp;&nbsp;</span> Línea del pseudocódigo que cambia respecto de la variante anterior</li>
+            <li class="list-group-item">Cada flecha va de un elemento a id[i]; las raíces (id[i] = i) están arriba. <code>union(p, q)</code> cuelga la raíz de p de la de q (en las weighted, el árbol más chico del más grande).</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar text-center small border-top">
+    <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, computed, onBeforeUnmount, nextTick } = Vue;
+
+// Ejemplo de Sedgewick (Algorithms 4ª ed., §1.5, tinyUF.txt) más dos finds para ver la compresión.
+const DEFAULT_N = 10;
+const DEFAULT_OPS_TEXT = '4-3\n3-8\n6-5\n9-4\n2-1\n8-9\n5-0\n7-2\n6-1\n1-0\n6-7\n?4\n?7';
+// ponytail: tope de N para que los 4 bosques entren en la grilla; subirlo si hace falta.
+const MAX_N = 20;
+
+// Bosque: radio de nodo y separación entre hojas / niveles (px).
+const UF_R = 13, UF_DX = 30, UF_DY = 44;
+
+function plural(n, word) { return `${n} ${word}${n === 1 ? '' : 's'}`; }
+
+// ── Acceso instrumentado a id[]/sz[]: cada lectura o escritura suma un acceso;
+// solo las escrituras que cambian el valor se marcan como celda modificada.
+function rd(ds, arr, i, log) { log.acc++; return ds[arr][i]; }
+function wr(ds, arr, i, val, log) {
+  log.acc++;
+  if (ds[arr][i] === val) return;
+  ds[arr][i] = val;
+  if (!log.written[arr].includes(i)) log.written[arr].push(i);
+}
+
+// find de quick-union: sube por id[] hasta la raíz.
+function rootFind(ds, p, log) {
+  const path = [p];
+  let parent;
+  while ((parent = rd(ds, 'id', p, log)) !== p) { p = parent; path.push(p); }
+  log.paths.push(path);
+  return { root: p, path, relinks: [] };
+}
+// find con compresión por halving (Sedgewick): mientras sube, id[p] ← id[id[p]], y salta al abuelo.
+function halvingFind(ds, p, log) {
+  const path = [p], relinks = [];
+  let parent;
+  while ((parent = rd(ds, 'id', p, log)) !== p) {
+    const grand = rd(ds, 'id', parent, log);
+    if (grand !== parent) relinks.push(`id[${p}] ← ${grand}`);
+    wr(ds, 'id', p, grand, log);
+    p = grand;
+    path.push(p);
+  }
+  log.paths.push(path);
+  return { root: p, path, relinks };
+}
+function describeFind(p, f) {
+  const base = f.path.length === 1 ? `find(${p}) = ${p}: es raíz.` : `find(${p}): ${f.path.join(' → ')}, raíz ${f.root}.`;
+  return base + (f.relinks.length ? ` Compresión: ${f.relinks.join(', ')}.` : '');
+}
+
+function quickUnion(find) {
+  return function (ds, p, q, log) {
+    const a = find(ds, p, log), b = find(ds, q, log);
+    const comp = [...a.relinks, ...b.relinks];
+    const compText = comp.length ? ` Compresión: ${comp.join(', ')}.` : '';
+    const i = a.root, j = b.root;
+    if (i === j) return `union(${p}, ${q}): raíz(${p}) = raíz(${q}) = ${i}, ya están conectados.${compText}`;
+    if (!this.weighted) {
+      wr(ds, 'id', i, j, log);
+      return `union(${p}, ${q}): raíz(${p}) = ${i}, raíz(${q}) = ${j} → id[${i}] ← ${j}.${compText}`;
+    }
+    // Igual que el libro: si sz[i] < sz[j] cuelga i de j; si no (incluido el empate), j de i.
+    const si = rd(ds, 'sz', i, log), sj = rd(ds, 'sz', j, log);
+    const [small, big] = si < sj ? [i, j] : [j, i];
+    wr(ds, 'id', small, big, log);
+    wr(ds, 'sz', big, si + sj, log);
+    return `union(${p}, ${q}): raíz(${p}) = ${i} (sz ${si}), raíz(${q}) = ${j} (sz ${sj}) → el más chico cuelga del más grande: id[${small}] ← ${big}, sz[${big}] = ${si + sj}.${compText}`;
+  };
+}
+
+// Pseudocódigo estático de cada variante; las líneas con "+" cambian respecto de la variante anterior.
+function pseudo(src) {
+  return src.trim().split('\n').map(l => ({ text: l.replace(/^\+/, ''), diff: l.startsWith('+') }));
+}
+
+const VARIANTS = [
+  {
+    name: 'Quick-find', cost: 'find O(1) · union O(N)', weighted: false,
+    code: pseudo(`
+ALGORITMO find(p)
+    RETORNAR id[p]
+
+ALGORITMO union(p, q)
+    pid ← find(p)
+    qid ← find(q)
+    SI pid = qid ENTONCES
+        RETORNAR
+    PARA CADA i EN 0..N-1 HACER
+        SI id[i] = pid ENTONCES
+            id[i] ← qid
+`),
+    find(ds, p, log) {
+      const root = rd(ds, 'id', p, log);
+      const path = root === p ? [p] : [p, root];
+      log.paths.push(path);
+      return { root, path, relinks: [] };
+    },
+    union(ds, p, q, log) {
+      const pid = this.find(ds, p, log).root, qid = this.find(ds, q, log).root;
+      if (pid === qid) return `union(${p}, ${q}): id[${p}] = id[${q}] = ${pid}, ya están conectados.`;
+      let changed = 0;
+      for (let i = 0; i < ds.id.length; i++) {
+        if (rd(ds, 'id', i, log) === pid) { wr(ds, 'id', i, qid, log); changed++; }
+      }
+      return `union(${p}, ${q}): se recorren los ${ds.id.length} elementos y ${changed === 1 ? 'el único' : `los ${changed}`} con id = ${pid} pasa${changed === 1 ? '' : 'n'} a ${qid}.`;
+    },
+  },
+  {
+    name: 'Quick-union', cost: 'find O(altura) · union O(altura)', weighted: false, find: rootFind, union: quickUnion(rootFind),
+    code: pseudo(`
+ALGORITMO find(p)
++    MIENTRAS p ≠ id[p] HACER
++        p ← id[p]
++    RETORNAR p
+
+ALGORITMO union(p, q)
+    i ← find(p)
+    j ← find(q)
+    SI i = j ENTONCES
+        RETORNAR
++    id[i] ← j
+`),
+  },
+  {
+    name: 'Weighted quick-union', cost: 'find/union O(log N)', weighted: true, find: rootFind, union: quickUnion(rootFind),
+    code: pseudo(`
+ALGORITMO find(p)
+    MIENTRAS p ≠ id[p] HACER
+        p ← id[p]
+    RETORNAR p
+
+ALGORITMO union(p, q)
+    i ← find(p)
+    j ← find(q)
+    SI i = j ENTONCES
+        RETORNAR
++    SI sz[i] < sz[j] ENTONCES
++        id[i] ← j
++        sz[j] ← sz[j] + sz[i]
++    SINO
++        id[j] ← i
++        sz[i] ← sz[i] + sz[j]
+`),
+  },
+  {
+    name: 'Weighted QU + path halving', cost: 'find/union ≈ O(1) amortizado', weighted: true, find: halvingFind, union: quickUnion(halvingFind),
+    code: pseudo(`
+ALGORITMO find(p)
+    MIENTRAS p ≠ id[p] HACER
++        id[p] ← id[id[p]]
+        p ← id[p]
+    RETORNAR p
+
+ALGORITMO union(p, q)
+    i ← find(p)
+    j ← find(q)
+    SI i = j ENTONCES
+        RETORNAR
+    SI sz[i] < sz[j] ENTONCES
+        id[i] ← j
+        sz[j] ← sz[j] + sz[i]
+    SINO
+        id[j] ← i
+        sz[i] ← sz[i] + sz[j]
+`),
+  },
+];
+
+// ── Parseo: "p-q" = union(p, q), "?p" = find(p), una por línea o separadas por coma.
+function parseOps(text, n) {
+  const ops = [];
+  for (const tok of text.split(/[\n,]/).map(t => t.trim()).filter(Boolean)) {
+    let m;
+    if ((m = tok.match(/^(\d+)\s*-\s*(\d+)$/))) ops.push({ type: 'union', p: +m[1], q: +m[2] });
+    else if ((m = tok.match(/^\?\s*(\d+)$/))) ops.push({ type: 'find', p: +m[1] });
+    else return { error: `No se entiende "${tok}": usá "p-q" para union o "?p" para find.` };
+    if (m.slice(1).some(x => x !== undefined && +x >= n)) return { error: `"${tok}": los elementos van de 0 a ${n - 1}.` };
+  }
+  return { ops };
+}
+function opLabel(op) { return op.type === 'union' ? `union(${op.p}, ${op.q})` : `find(${op.p})`; }
+
+function forestHeight(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) {
+    let d = 0;
+    for (let x = i; id[x] !== x; x = id[x]) d++;
+    h = Math.max(h, d);
+  }
+  return h;
+}
+
+// ── Corre las operaciones una vez sobre las 4 variantes y guarda un snapshot por operación.
+function computeSteps(n, ops) {
+  const states = VARIANTS.map(() => ({ id: [...Array(n).keys()], sz: Array(n).fill(1), total: 0 }));
+  const steps = [];
+  function snapshot(op, logs) {
+    steps.push({
+      op,
+      variants: states.map((ds, k) => {
+        const log = logs ? logs[k] : { acc: 0, paths: [], written: { id: [], sz: [] }, text: 'Estado inicial: id[i] = i, cada elemento es su propia raíz.' };
+        return { id: [...ds.id], sz: [...ds.sz], paths: log.paths, written: log.written, acc: log.acc, total: ds.total, height: forestHeight(ds.id), text: log.text };
+      }),
+    });
+  }
+  snapshot(null, null);
+  for (const op of ops) {
+    const logs = VARIANTS.map((variant, k) => {
+      const ds = states[k];
+      const log = { acc: 0, paths: [], written: { id: [], sz: [] } };
+      const text = op.type === 'union' ? variant.union(ds, op.p, op.q, log) : describeFind(op.p, variant.find(ds, op.p, log));
+      log.text = `${text} (${plural(log.acc, 'acceso')})`;
+      ds.total += log.acc;
+      return log;
+    });
+    snapshot(op, logs);
+  }
+  return steps;
+}
+
+// ── Layout del bosque: raíces arriba en orden de índice, ancho de cada subárbol
+// proporcional a su cantidad de hojas, Y fija por profundidad (igual que kruskal.html).
+function forestLayout(id) {
+  const labels = id.map((_, i) => i);
+  const children = labels.map(() => []);
+  for (const l of labels) if (id[l] !== l) children[id[l]].push(l);
+  const leaves = l => children[l].length ? children[l].reduce((s, c) => s + leaves(c), 0) : 1;
+  const pos = [];
+  let maxDepth = 0;
+  function place(l, left, depth) {
+    pos[l] = { x: (left + leaves(l) / 2) * UF_DX, y: depth * UF_DY + UF_R + 4 };
+    maxDepth = Math.max(maxDepth, depth);
+    let x = left;
+    for (const c of children[l]) { place(c, x, depth + 1); x += leaves(c); }
+  }
+  let left = 0;
+  for (const l of labels) if (id[l] === l) { place(l, left, 0); left += leaves(l); }
+
+  // Flecha hijo → padre, recortada en el borde de ambos círculos.
+  const links = labels.filter(l => id[l] !== l).map(l => {
+    const a = pos[l], b = pos[id[l]];
+    const d = Math.hypot(b.x - a.x, b.y - a.y), ux = (b.x - a.x) / d, uy = (b.y - a.y) / d;
+    return { from: l, to: id[l], x1: a.x + ux * UF_R, y1: a.y + uy * UF_R, x2: b.x - ux * UF_R, y2: b.y - uy * UF_R };
+  });
+  return {
+    nodes: labels.map(l => ({ label: l, ...pos[l] })),
+    links,
+    width: left * UF_DX,
+    height: maxDepth * UF_DY + 2 * (UF_R + 4),
+  };
+}
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-grafos-union-find';
+
+    const n = ref(DEFAULT_N);
+    const opsText = ref(DEFAULT_OPS_TEXT);
+    const steps = ref(computeSteps(DEFAULT_N, parseOps(DEFAULT_OPS_TEXT, DEFAULT_N).ops));
+    const currentStepIndex = ref(0);
+    const isPlaying = ref(false);
+    const speedMs = ref(700);
+    let playTimer = null;
+
+    const showEditor = ref(false);
+    const nDraft = ref(DEFAULT_N);
+    const opsDraft = ref(DEFAULT_OPS_TEXT);
+    const editorError = ref('');
+    const liveP = ref(0);
+    const liveQ = ref(1);
+    const liveError = ref('');
+
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+
+    const currentStep = computed(() => steps.value[currentStepIndex.value]);
+    const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
+    const panels = computed(() => VARIANTS.map((variant, k) => {
+      const vs = currentStep.value.variants[k];
+      return { variant, vs, forest: forestLayout(vs.id) };
+    }));
+
+    function onPath(vs, label) { return vs.paths.some(path => path.includes(label)); }
+    function cellClass(vs, arr, i) {
+      return {
+        'cell-changed': vs.written[arr].includes(i),
+        'cell-path': arr === 'id' && !vs.written.id.includes(i) && onPath(vs, i),
+        'fw-bold': arr === 'id' && vs.id[i] === i,
+      };
+    }
+    function linkClass(vs, link) {
+      return {
+        'on-path': vs.paths.some(path => { const i = path.indexOf(link.from); return i >= 0 && path[i + 1] === link.to; }),
+        changed: vs.written.id.includes(link.from),
+      };
+    }
+
+    // ── Aplicar N + secuencia (lanza error si no es válida) ──
+    function applyOps(nVal, text) {
+      if (!Number.isInteger(nVal) || nVal < 1 || nVal > MAX_N) throw new Error(`N tiene que ser un entero entre 1 y ${MAX_N}.`);
+      const { ops, error } = parseOps(text, nVal);
+      if (error) throw new Error(error);
+      n.value = nVal;
+      opsText.value = text;
+      nDraft.value = nVal;
+      opsDraft.value = text;
+      steps.value = computeSteps(nVal, ops);
+      stopAutoplay();
+      currentStepIndex.value = 0;
+    }
+
+    // ── Persistencia ──
+    function currentState() {
+      return { n: n.value, opsText: opsText.value };
+    }
+    function applyState(data) {
+      applyOps(data.n ?? n.value, data.opsText ?? opsText.value);
+    }
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
+    }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) { resetToDefault(); return; }
+        applyState(JSON.parse(raw));
+      } catch (e) { resetToDefault(); }
+    }
+
+    // ── Compartir por URL (#d=...) ──
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer la secuencia de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo" (2 pasos) ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      newConfirm.value = false;
+      editorError.value = '';
+      liveError.value = '';
+      applyState({ n: DEFAULT_N, opsText: DEFAULT_OPS_TEXT });
+      persist();
+    }
+
+    // ── Editar secuencia / operación en vivo ──
+    function toggleEditor() {
+      showEditor.value = !showEditor.value;
+      nDraft.value = n.value;
+      opsDraft.value = opsText.value;
+      editorError.value = '';
+    }
+    function applyEditor() {
+      try { applyOps(nDraft.value, opsDraft.value); } catch (e) { editorError.value = e.message; return; }
+      editorError.value = '';
+      persist();
+    }
+    function addOp(type) {
+      const tok = type === 'union' ? `${liveP.value}-${liveQ.value}` : `?${liveP.value}`;
+      const base = opsText.value.trim();
+      try { applyOps(n.value, base ? `${base}\n${tok}` : tok); } catch (e) { liveError.value = e.message; return; }
+      liveError.value = '';
+      persist();
+      goToStep(steps.value.length - 1);
+    }
+
+    // ── Reproducción ──
+    function goToStep(i) {
+      currentStepIndex.value = Math.max(0, Math.min(steps.value.length - 1, i));
+      nextTick(() => document.querySelector('.history-list .active')?.scrollIntoView({ block: 'nearest' }));
+    }
+    function stepForward() { if (!isAtEnd.value) goToStep(currentStepIndex.value + 1); else stopAutoplay(); }
+    function stepBackward() { goToStep(currentStepIndex.value - 1); }
+    function restartAnimation() { stopAutoplay(); goToStep(0); }
+    function stopAutoplay() {
+      isPlaying.value = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    }
+    function togglePlay() {
+      if (isPlaying.value) { stopAutoplay(); return; }
+      if (isAtEnd.value) goToStep(0);
+      isPlaying.value = true;
+      playTimer = setInterval(() => {
+        if (isAtEnd.value) { stopAutoplay(); return; }
+        stepForward();
+      }, speedMs.value);
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+    }
+
+    loadInitialState();
+    onBeforeUnmount(stopAutoplay);
+
+    return {
+      VARIANTS, MAX_N, UF_R, n, opLabel,
+      steps, currentStepIndex, currentStep, isAtEnd, panels,
+      onPath, cellClass, linkClass,
+      isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation, goToStep,
+      showEditor, toggleEditor, nDraft, opsDraft, editorError, applyEditor,
+      liveP, liveQ, liveError, addOp,
+      newConfirm, handleNewClick, shareCopied, shareCurrentState,
+      isDark, toggleTheme,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
