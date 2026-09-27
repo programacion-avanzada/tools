@@ -58,6 +58,8 @@ Las reglas de stack/idioma, **Modo claro/oscuro**, **Persistencia/"Nuevo"/Compar
 
 **Variante sin tabla clickeable (`recursion/teorema-maestro.html`)**: mismo layout de 2 columnas y mismas convenciones (watch + persist, KaTeX manual en `renderMath()` tras `nextTick`, banner + badge de veredicto), pero la columna derecha es un análisis que se recalcula en vivo al cambiar los inputs (sin botón "Resolver"): desarrollo en KaTeX, tabla por nivel y un gráfico de barras en HTML/CSS (sin librería). El color de caso se aplica con una clase `.case-*` que define `--case-bg`/`--case-strong` a partir de variables `--bs-*`.
 
+**Variante con gráfico (`complejidad/comparador.html`)**: mismo layout de 2 columnas, con un gráfico de líneas en `<svg>` dentro del template (sin librería), dibujado en píxeles al ancho real de la card (medido con `ResizeObserver`). **No usar `viewBox` en los SVG del template**: como el template vive dentro del HTML, el navegador pasa los atributos a minúscula y `viewbox` no lo entiende el SVG. Colores de series: paleta categórica validada con el skill `dataviz` para los fondos de Bootstrap (claro y oscuro), asignada por posición de la función en la lista (fija, no por orden de marcado); desde la 9ª se repite el tono con otro trazo. Los valores se manejan como log10 para no desbordar. Las funciones propias se evalúan con un parser de descenso recursivo, **nunca con `eval`**: el estado viaja en la URL de Compartir.
+
 ## Familia 2: visualizaciones basadas en Canvas (`recursion/`)
 
 Para diagramas/grafos (árboles de llamadas, DAGs), no el layout de 2 columnas. Referencia: `recursion/call-tree.html`.

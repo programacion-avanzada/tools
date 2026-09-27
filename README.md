@@ -6,6 +6,22 @@ Visualizaciones interactivas para enseñar Programación Avanzada. Cada visualiz
 
 ## Visualizaciones disponibles
 
+### Complejidad computacional
+
+| Archivo | Tema |
+|---|---|
+| [`complejidad/comparador.html`](complejidad/comparador.html) | Órdenes de complejidad: tabla, gráfico y tiempos estimados |
+
+El comparador de órdenes de complejidad permite:
+- Ver la tabla clásica (1, log n, √n, n, n log n, n², n³, 2ⁿ, n!) con ejemplos de algoritmos, y marcar solo las funciones que se quieren comparar.
+- Agregar funciones propias (`n^1.5`, `n*log(n)^2`, `3^n`...), evaluadas con un parser propio (nunca `eval`, porque viajan en el link de Compartir).
+- Graficar las marcadas de n = 1 a un n máximo, en escala lineal (se ve cómo las que crecen rápido aplastan al resto) o logarítmica, con rótulos al final de cada línea y un tooltip con los valores al pasar el mouse.
+- Calibrar el tiempo con una frase ("un algoritmo O(n) tarda 1 ms con N = 1000", que fija el costo por operación c = T/N) y ver, para cada función: cuánto tardaría con ese N, una tabla de tiempos para N = 10 … 10⁶, y el N más grande que se resuelve en 1 segundo, 1 minuto, 1 hora, 1 día o 1 año. Todo se calcula en logaritmos, así que 2ⁿ o n! con N = 10⁶ no desbordan.
+- Botones para marcar comparaciones típicas de un clic: búsquedas, ordenamientos, polinomiales, fuerza bruta, todas o ninguna.
+- Una constante por función (ej. 100·n log n contra 2·n²): el gráfico marca dónde se cruzan y explica desde qué n conviene cada una (las constantes deciden con n chico, el orden con n grande).
+- "Con una computadora k veces más rápida": cuánto crece el N máximo de cada función (× k con n, × √k con n², apenas + log₂ k con 2ⁿ).
+- Autoguardado, "🆕 Nuevo", "🔗 Compartir" y modo claro/oscuro como el resto.
+
 ### Recursión
 
 | Archivo | Tema |

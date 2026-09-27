@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Órdenes de complejidad</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+
+  <style>
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .time-slow { background-color: var(--bs-warning-bg-subtle) !important; }
+    .time-hopeless { background-color: var(--bs-danger-bg-subtle) !important; }
+    .row-off > td:not(:first-child) { color: var(--bs-secondary-color); }
+    .chart-wrap { position: relative; }
+    .chart-wrap > svg { display: block; }
+    .chart-grid { stroke: var(--bs-border-color); stroke-width: 1; }
+    .chart-axis { stroke: var(--bs-secondary-color); stroke-width: 1; }
+    .chart-tick { fill: var(--bs-secondary-color); font-size: 11px; }
+    .chart-label { font-size: 12px; fill: var(--bs-body-color); }
+    .chart-cross { stroke: var(--bs-secondary-color); stroke-width: 1; stroke-dasharray: 3 3; }
+    .chart-tip { position: absolute; top: 0; pointer-events: none; min-width: 170px; z-index: 5; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand mb-0 h5">📈 Órdenes de complejidad</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">Complejidad · comparar f(n)</span>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver a los valores de ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir esta configuración">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="container-fluid py-3">
+    <div class="row g-3">
+
+      <!-- PANEL IZQUIERDO -->
+      <div class="col-12 col-md-4 col-xl-3">
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">⏱️ Calibración</div>
+          <div class="card-body">
+            <p class="small mb-2">Un algoritmo <strong>O(n)</strong> tarda</p>
+            <div class="input-group mb-2">
+              <input type="number" class="form-control" min="0" step="any" v-model.number="calT" />
+              <select class="form-select" style="max-width: 6rem;" v-model="calUnit">
+                <option v-for="u in CAL_UNITS" :key="u.id" :value="u.id">{{ u.id }}</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <span class="input-group-text">con N =</span>
+              <input type="number" class="form-control" min="2" step="1" v-model.number="calN" />
+            </div>
+            <div class="alert alert-danger small py-1 px-2 mt-2 mb-0" v-if="calError">{{ calError }}</div>
+            <p class="small text-muted mt-2 mb-0" v-else>
+              → cada operación cuesta c = T / N ≈ <strong>{{ humanTime(logC) }}</strong>. Todos los tiempos de abajo son c · f(N).
+            </p>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">📈 Gráfico</div>
+          <div class="card-body">
+            <label class="form-label small mb-0">n máximo</label>
+            <input type="number" class="form-control mb-2" min="2" max="1000000" step="1" v-model.number="nMax" />
+            <div class="btn-group btn-group-sm w-100" role="group">
+              <button type="button" class="btn" :class="!yLog ? 'btn-secondary' : 'btn-outline-secondary'" @click="yLog = false">Escala lineal</button>
+              <button type="button" class="btn" :class="yLog ? 'btn-secondary' : 'btn-outline-secondary'" @click="yLog = true">Logarítmica</button>
+            </div>
+            <p class="small text-muted mt-2 mb-0">En lineal se ve cómo las que crecen rápido aplastan al resto; en logarítmica se pueden comparar todas.</p>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">➕ Agregar función</div>
+          <div class="card-body">
+            <input class="form-control form-control-sm mb-2 font-monospace" v-model="newExpr" placeholder="ej: n^1.5, n*log(n)^2, 3^n"
+              @keyup.enter="addCustom" />
+            <input class="form-control form-control-sm mb-2" v-model="newName" placeholder="nombre (opcional)" @keyup.enter="addCustom" />
+            <button class="btn btn-dark btn-sm w-100" @click="addCustom">➕ Agregar</button>
+            <div class="alert alert-danger small py-1 px-2 mt-2 mb-0" v-if="customError">{{ customError }}</div>
+            <p class="small text-muted mt-2 mb-0">
+              Se puede usar <code>n</code>, números, <code>+ - * / ^</code>, paréntesis, <code>log</code> (base 2), <code>ln</code>, <code>sqrt</code> y <code>!</code>.
+            </p>
+          </div>
+        </div>
+
+        <div class="mt-4 mb-4">
+          <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+        </div>
+
+      </div>
+
+      <!-- PANEL DERECHO -->
+      <div class="col-12 col-md-8 col-xl-9">
+
+        <!-- Tabla de funciones -->
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">📋 Órdenes de complejidad</div>
+          <div class="card-body p-2 overflow-auto">
+            <div class="d-flex flex-wrap align-items-center gap-1 mb-2 small">
+              <span class="text-muted me-1">Comparar:</span>
+              <button v-for="p in PRESETS" :key="p.label" type="button" class="btn btn-sm py-0"
+                :class="isPreset(p) ? 'btn-secondary' : 'btn-outline-secondary'" @click="applyPreset(p)">{{ p.label }}</button>
+            </div>
+            <table class="table table-sm table-bordered align-middle mb-0 small">
+              <thead>
+                <tr>
+                  <th class="dp-header-cell text-center" title="Marcar para comparar">✔</th>
+                  <th class="dp-header-cell">f(n)</th>
+                  <th class="dp-header-cell" title="Multiplica a f(n). Sirve para ver que las constantes solo deciden con n chico">Constante</th>
+                  <th class="dp-header-cell">Nombre</th>
+                  <th class="dp-header-cell">Ejemplos</th>
+                  <th class="dp-header-cell text-end">Tiempo para N = {{ fmt(calN) }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="f in allFuncs" :key="f.id" :class="{ 'row-off': !checked.includes(f.id) }">
+                  <td class="text-center"><input type="checkbox" class="form-check-input" :value="f.id" v-model="checked" /></td>
+                  <td class="text-nowrap">
+                    <svg width="26" height="10" class="me-2 align-middle"><line x1="2" y1="5" x2="24" y2="5" :stroke="colorOf(f)" stroke-width="2.5" :stroke-dasharray="dashOf(f)" stroke-linecap="round" /></svg>
+                    <span :id="`tex-${f.id}`"></span>
+                  </td>
+                  <td>
+                    <input type="number" class="form-control form-control-sm num" style="width: 5.5rem;" min="0" step="any"
+                      :value="consts[f.id] ?? 1" @change="setConst(f.id, $event.target.valueAsNumber)" :title="`Constante que multiplica a ${f.baseLabel}`" />
+                  </td>
+                  <td>{{ f.name }}</td>
+                  <td>
+                    {{ f.examples }}
+                    <button v-if="f.custom" type="button" class="btn btn-sm btn-outline-danger py-0 px-1 ms-1" title="Quitar esta función" @click="removeCustom(f.id)">🗑️</button>
+                  </td>
+                  <td class="text-end num" :class="timeClass(timeLog(f, calN))" :title="calError ? '' : humanTime(timeLog(f, calN))">{{ calError ? '—' : humanTime(timeLog(f, calN), true) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Gráfico -->
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">📊 f(n) para n de 1 a {{ fmt(nMax) }} ({{ yLog ? 'escala logarítmica' : 'escala lineal' }})</div>
+          <div class="card-body">
+            <p class="text-muted text-center py-4 mb-0" v-if="!shownFuncs.length">Marcá al menos una función en la tabla para graficarla.</p>
+            <template v-else>
+              <div class="d-flex flex-wrap gap-3 small mb-2">
+                <span v-for="f in shownFuncs" :key="f.id" class="d-inline-flex align-items-center gap-1">
+                  <svg width="22" height="10"><line x1="2" y1="5" x2="20" y2="5" :stroke="colorOf(f)" stroke-width="2.5" :stroke-dasharray="dashOf(f)" stroke-linecap="round" /></svg>
+                  {{ f.label }}
+                </span>
+              </div>
+              <div class="chart-wrap" ref="chartWrapEl">
+                <svg :width="CH.w" :height="CH.h" role="img" :aria-label="`Gráfico de ${shownFuncs.map(f => f.label).join(', ')}`">
+                  <line v-for="t in chart.yTicks" :key="`gy${t.y}`" class="chart-grid" :x1="CH.l" :x2="CH.w - CH.r" :y1="t.y" :y2="t.y" />
+                  <text v-for="t in chart.yTicks" :key="`ty${t.y}`" class="chart-tick num" :x="CH.l - 6" :y="t.y" text-anchor="end" dominant-baseline="middle">{{ t.label }}</text>
+                  <text v-for="t in chart.xTicks" :key="`tx${t.x}`" class="chart-tick num" :x="t.x" :y="CH.h - CH.b + 16" text-anchor="middle">{{ t.label }}</text>
+                  <line class="chart-axis" :x1="CH.l" :x2="CH.w - CH.r" :y1="CH.h - CH.b" :y2="CH.h - CH.b" />
+                  <line class="chart-axis" :x1="CH.l" :x2="CH.l" :y1="CH.t" :y2="CH.h - CH.b" />
+                  <text class="chart-tick" :x="(CH.l + CH.w - CH.r) / 2" :y="CH.h - 4" text-anchor="middle">n</text>
+                  <path v-for="s in chart.series" :key="s.id" :d="s.d" fill="none" :stroke="s.color" stroke-width="2"
+                    :stroke-dasharray="s.dash" stroke-linejoin="round" stroke-linecap="round" />
+                  <text v-for="s in chart.series" :key="`l${s.id}`" class="chart-label" :x="CH.w - CH.r + 8" :y="s.labelY" dominant-baseline="middle">{{ s.label }}</text>
+                  <g v-for="m in chart.marks" :key="m.key">
+                    <circle :cx="m.x" :cy="m.y" r="4.5" fill="var(--bs-body-bg)" stroke="var(--bs-emphasis-color)" stroke-width="2" />
+                    <text v-if="m.label" class="chart-tick num" :x="m.x" :y="m.y - 9" text-anchor="middle">{{ m.label }}</text>
+                  </g>
+                  <template v-if="hover">
+                    <line class="chart-cross" :x1="hover.x" :x2="hover.x" :y1="CH.t" :y2="CH.h - CH.b" />
+                    <circle v-for="p in hover.points" :key="p.id" :cx="hover.x" :cy="p.y" r="4" :fill="p.color" stroke="var(--bs-body-bg)" stroke-width="2" />
+                  </template>
+                  <rect :x="CH.l" :y="CH.t" :width="CH.w - CH.l - CH.r" :height="CH.h - CH.t - CH.b" fill="transparent"
+                    @mousemove="onChartMove" @mouseleave="hover = null" />
+                </svg>
+                <div class="card shadow-sm chart-tip" v-if="hover" :style="hover.tipStyle">
+                  <div class="card-body p-2 small">
+                    <div class="fw-semibold mb-1">n = {{ fmt(hover.n) }}</div>
+                    <div v-for="p in hover.rows" :key="p.id" class="d-flex align-items-center gap-2">
+                      <svg width="14" height="8"><line x1="1" y1="4" x2="13" y2="4" :stroke="p.color" stroke-width="2.5" :stroke-dasharray="p.dash" /></svg>
+                      <span>{{ p.label }}</span>
+                      <span class="ms-auto num fw-semibold">{{ p.value }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="small mt-2" v-if="shownFuncs.length > 1">
+                <span class="text-muted">Cruces:</span>
+                <span v-if="!crossings.length" class="text-muted"> ninguno entre las marcadas (una crece más rápido que la otra desde el principio).</span>
+                <ul class="mb-0 ps-3" v-else>
+                  <li v-for="x in crossings" :key="x.key">
+                    <strong>{{ x.a.label }}</strong> y <strong>{{ x.b.label }}</strong> se cruzan en n ≈ {{ fmtN(x.n) }}:
+                    a partir de ahí conviene {{ x.winner.label }}.
+                    <span class="text-muted" v-if="x.n > nMax">(Fuera del gráfico: subí el n máximo para verlo.)</span>
+                  </li>
+                </ul>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div class="row g-3" v-if="shownFuncs.length && !calError">
+          <!-- Tabla N × funciones -->
+          <div class="col-12 col-xxl-7">
+            <div class="card h-100">
+              <div class="card-header fw-semibold">⏳ Cuánto tardaría para cada N</div>
+              <div class="card-body p-2 overflow-auto">
+                <table class="table table-sm table-bordered align-middle mb-1 small">
+                  <thead>
+                    <tr>
+                      <th class="dp-header-cell">f(n)</th>
+                      <th class="dp-header-cell text-end num" v-for="N in N_COLUMNS" :key="N">N = {{ fmtPow10(N) }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="f in shownFuncs" :key="f.id">
+                      <td class="text-nowrap">{{ f.label }}</td>
+                      <td v-for="N in N_COLUMNS" :key="N" class="text-end num" :class="timeClass(timeLog(f, N))" :title="humanTime(timeLog(f, N))">{{ humanTime(timeLog(f, N), true) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p class="small text-muted mb-0">Amarillo: más de un día. Rojo: más de un siglo. 🌌: más que la edad del universo (≈ 1,4 × 10¹⁰ años).</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tabla inversa -->
+          <div class="col-12 col-xxl-5">
+            <div class="card h-100">
+              <div class="card-header fw-semibold">🎯 N más grande que se resuelve en…</div>
+              <div class="card-body p-2 overflow-auto">
+                <table class="table table-sm table-bordered align-middle mb-1 small">
+                  <thead>
+                    <tr>
+                      <th class="dp-header-cell">f(n)</th>
+                      <th class="dp-header-cell text-end" v-for="b in BUDGETS" :key="b.label">{{ b.label }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="f in shownFuncs" :key="f.id">
+                      <td class="text-nowrap">{{ f.label }}</td>
+                      <td v-for="b in BUDGETS" :key="b.label" class="text-end num">{{ maxNLabel(f, b.s) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p class="small text-muted mb-3">El N más grande tal que c · f(N) entra en ese tiempo.</p>
+
+                <div class="d-flex flex-wrap align-items-center gap-2 small mb-2">
+                  🚀 Con una computadora
+                  <input type="number" class="form-control form-control-sm num" style="width: 6rem;" min="1" step="any" v-model.number="speedK" />
+                  veces más rápida, en
+                  <select class="form-select form-select-sm w-auto" v-model.number="speedBudget">
+                    <option v-for="b in BUDGETS" :key="b.label" :value="b.s">{{ b.label }}</option>
+                  </select>
+                </div>
+                <table class="table table-sm table-bordered align-middle mb-1 small" v-if="speedK > 0">
+                  <thead>
+                    <tr>
+                      <th class="dp-header-cell">f(n)</th>
+                      <th class="dp-header-cell text-end">N hoy</th>
+                      <th class="dp-header-cell text-end">N con la nueva</th>
+                      <th class="dp-header-cell text-end">Crece</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="f in shownFuncs" :key="f.id">
+                      <td class="text-nowrap">{{ f.label }}</td>
+                      <td class="text-end num">{{ maxNLabel(f, speedBudget) }}</td>
+                      <td class="text-end num">{{ maxNLabel(f, speedBudget * speedK) }}</td>
+                      <td class="text-end num fw-semibold">{{ speedGrowth(f) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p class="small text-muted mb-0">Con n el N crece tanto como la máquina; con 2ⁿ apenas se le suma un poco: el hardware no salva a un algoritmo exponencial.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, nextTick, watch, onBeforeUnmount } = Vue;
+
+const LN10 = Math.log(10);
+const YEAR = 365.25 * 86400;
+const LOG_UNIVERSE = Math.log10(1.38e10 * YEAR); // edad del universo, en segundos
+
+// ln Γ(x) por la aproximación de Lanczos (g = 7): da n! = Γ(n + 1) también para n real y enorme.
+const LANCZOS = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+  -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+function lnGamma(x) {
+  if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - lnGamma(1 - x);
+  x -= 1;
+  let a = LANCZOS[0];
+  const t = x + 7.5;
+  for (let i = 1; i < 9; i++) a += LANCZOS[i] / (x + i);
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+const log10Fact = n => lnGamma(n + 1) / LN10;
+
+// ── Funciones de la tabla: log10 de f(n) en forma cerrada (así 2ⁿ o n! con n = 10⁶ no desbordan) ──
+const CLASSICS = [
+  { id: '1', label: '1', tex: '1', name: 'constante', examples: 'acceder a a[i], apilar o desapilar', log10: () => 0 },
+  { id: 'log', label: 'log n', tex: '\\log n', name: 'logarítmica', examples: 'búsqueda binaria, insertar o extraer en un heap', log10: n => Math.log10(Math.log2(n)) },
+  { id: 'sqrt', label: '√n', tex: '\\sqrt{n}', name: 'raíz', examples: 'ver si n es primo probando divisores hasta √n', log10: n => Math.log10(n) / 2 },
+  { id: 'n', label: 'n', tex: 'n', name: 'lineal', examples: 'recorrer un arreglo, búsqueda secuencial, buscar el máximo', log10: n => Math.log10(n) },
+  { id: 'nlogn', label: 'n log n', tex: 'n \\log n', name: 'n log n', examples: 'merge sort, heapsort, quicksort (caso promedio)', log10: n => Math.log10(n) + Math.log10(Math.log2(n)) },
+  { id: 'n2', label: 'n²', tex: 'n^2', name: 'cuadrática', examples: 'burbujeo, selección, inserción; recorrer una matriz n×n', log10: n => 2 * Math.log10(n) },
+  { id: 'n3', label: 'n³', tex: 'n^3', name: 'cúbica', examples: 'Floyd, producto de matrices clásico', log10: n => 3 * Math.log10(n) },
+  { id: '2n', label: '2ⁿ', tex: '2^n', name: 'exponencial', examples: 'generar todos los subconjuntos, fibonacci recursivo ingenuo, Hanoi', log10: n => n * Math.log10(2) },
+  { id: 'fact', label: 'n!', tex: 'n!', name: 'factorial', examples: 'generar todas las permutaciones, viajante por fuerza bruta', log10: log10Fact },
+];
+
+// ── Parser de funciones propias (descenso recursivo, sin eval: la expresión viaja en el link de Compartir) ──
+// expr := term (('+'|'-') term)* · term := unary (('*'|'/'|implícito) unary)* · unary := '-' unary | power
+// power := postfix ('^' unary)? · postfix := primary '!'* · primary := número | n | func (primary) | '(' expr ')'
+const FUNCS = {
+  log: { f: Math.log2, tex: a => `\\log ${a}` }, log2: { f: Math.log2, tex: a => `\\log ${a}` },
+  ln: { f: Math.log, tex: a => `\\ln ${a}` }, sqrt: { f: Math.sqrt, tex: a => `\\sqrt{${a}}` },
+};
+function parseExpr(src) {
+  const tokens = src.replace(/·/g, '*').replace(/√/g, 'sqrt').match(/\d+(\.\d+)?|[a-z]+|[-+*/^()!]|\S/gi) || [];
+  let pos = 0;
+  const peek = () => tokens[pos], next = () => tokens[pos++];
+  const fail = msg => { throw new Error(msg); };
+  const startsPrimary = t => t !== undefined && (/^[\d(]/.test(t) || /^[a-z]+$/i.test(t));
+
+  function expr() {
+    let node = term();
+    while (peek() === '+' || peek() === '-') { const op = next(); node = { op, a: node, b: term() }; }
+    return node;
+  }
+  function term() {
+    let node = unary();
+    while (peek() === '*' || peek() === '/' || startsPrimary(peek())) {
+      const op = peek() === '*' || peek() === '/' ? next() : '*';
+      node = { op, a: node, b: unary() };
+    }
+    return node;
+  }
+  function unary() { return peek() === '-' ? (next(), { op: 'neg', a: unary() }) : power(); }
+  function power() {
+    const base = postfix();
+    return peek() === '^' ? (next(), { op: '^', a: base, b: unary() }) : base;
+  }
+  function postfix() {
+    let node = primary();
+    while (peek() === '!') { next(); node = { op: '!', a: node }; }
+    return node;
+  }
+  function primary() {
+    const t = next();
+    if (t === undefined) fail('La expresión termina antes de tiempo.');
+    if (/^\d/.test(t)) return { num: Number(t) };
+    if (t === 'n' || t === 'N') return { n: true };
+    if (t === '(') { const e = expr(); if (next() !== ')') fail('Falta cerrar un paréntesis.'); return { paren: e }; }
+    const fn = FUNCS[t.toLowerCase()];
+    if (fn) return { fn: t.toLowerCase(), a: postfix() };
+    fail(`No se entiende "${t}".`);
+  }
+
+  const tree = expr();
+  if (pos < tokens.length) fail(`Sobra "${tokens[pos]}".`);
+  return tree;
+}
+function evalNode(node, n) {
+  if ('num' in node) return node.num;
+  if (node.n) return n;
+  if (node.paren) return evalNode(node.paren, n);
+  if (node.fn) return FUNCS[node.fn].f(evalNode(node.a, n));
+  const a = evalNode(node.a, n);
+  switch (node.op) {
+    case 'neg': return -a;
+    case '!': return a < 0 ? NaN : Math.exp(lnGamma(a + 1));
+    case '+': return a + evalNode(node.b, n);
+    case '-': return a - evalNode(node.b, n);
+    case '*': return a * evalNode(node.b, n);
+    case '/': return a / evalNode(node.b, n);
+    case '^': return a ** evalNode(node.b, n);
+  }
+}
+function texNode(node) {
+  if ('num' in node) return String(node.num).replace('.', '{,}');
+  if (node.n) return 'n';
+  if (node.paren) return `\\left(${texNode(node.paren)}\\right)`;
+  if (node.fn) return FUNCS[node.fn].tex(texNode(node.a.paren ?? node.a));
+  const a = texNode(node.a);
+  switch (node.op) {
+    case 'neg': return `-${a}`;
+    case '!': return `${a}!`;
+    case '+': case '-': return `${a} ${node.op} ${texNode(node.b)}`;
+    case '*': return `${a} \\cdot ${texNode(node.b)}`;
+    case '/': return `\\frac{${texNode(node.a.paren ?? node.a)}}{${texNode(node.b.paren ?? node.b)}}`;
+    case '^': return `{${a}}^{${texNode(node.b)}}`;
+  }
+}
+// Función propia lista para la tabla: log10 f(n) evaluando en doble (si desborda, +∞).
+function makeCustom({ id, expr, name }) {
+  const tree = parseExpr(expr);
+  return {
+    id, expr, custom: true, label: expr.trim(), tex: texNode(tree),
+    name: name || 'propia', examples: '',
+    log10: n => { const v = evalNode(tree, n); return v > 0 ? Math.log10(v) : (v === 0 ? -Infinity : NaN); },
+  };
+}
+
+// ── Colores: paleta categórica validada (skill dataviz) para el fondo claro y el oscuro de Bootstrap.
+// Asignados por posición en la lista (fijos por función, no por orden de marcado); del 9º en adelante
+// se repite el tono con trazo punteado o de guiones como segunda codificación ──
+const PALETTES = {
+  light: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'],
+  dark: ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'],
+};
+const DASHES = ['', '7 4', '1.5 4'];
+
+const CAL_UNITS = [
+  { id: 'ns', s: 1e-9 }, { id: 'µs', s: 1e-6 }, { id: 'ms', s: 1e-3 }, { id: 's', s: 1 }, { id: 'min', s: 60 }, { id: 'h', s: 3600 },
+];
+const N_COLUMNS = [10, 100, 1e3, 1e4, 1e5, 1e6];
+const PRESETS = [
+  { label: 'Búsquedas', ids: ['log', 'n'] },
+  { label: 'Ordenamientos', ids: ['nlogn', 'n2'] },
+  { label: 'Polinomiales', ids: ['n', 'n2', 'n3'] },
+  { label: 'Fuerza bruta', ids: ['2n', 'fact'] },
+  { label: 'Todas', ids: null },
+  { label: 'Ninguna', ids: [] },
+];
+const BUDGETS = [
+  { label: '1 segundo', s: 1 }, { label: '1 minuto', s: 60 }, { label: '1 hora', s: 3600 },
+  { label: '1 día', s: 86400 }, { label: '1 año', s: YEAR },
+];
+const TIME_UNITS = [['ns', 1e-9], ['µs', 1e-6], ['ms', 1e-3], ['s', 1], ['min', 60], ['h', 3600], ['día', 86400, 'días'], ['año', YEAR, 'años']];
+const MAX_SEARCH_N = 1e15;
+
+const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+const sup = e => String(e).split('').map(ch => SUP[ch]).join('');
+function fmt(x) { return x.toLocaleString('es', { maximumFractionDigits: 2 }); }
+// Número de cualquier tamaño a partir de su log10: con separador de miles hasta 10⁹, si no m × 10ᵉ.
+function fmtLog(l, sciFrom = 9) {
+  if (l === -Infinity) return '0';
+  if (!Number.isFinite(l)) return l > 0 ? '> 10³⁰⁸' : '—';
+  if (l < sciFrom) return fmt(10 ** l);
+  const e = Math.floor(l), m = 10 ** (l - e);
+  return `${m.toLocaleString('es', { maximumFractionDigits: 1 })} × 10${sup(e)}`;
+}
+function fmtPow10(N) { return N >= 1000 ? `10${sup(Math.round(Math.log10(N)))}` : String(N); }
+
+// Tiempo legible a partir de log10 de los segundos (no desborda con 2ⁿ ni n!).
+// short: en las tablas, la frase "más que la edad del universo" se reemplaza por 🌌.
+function humanTime(l, short = false) {
+  if (l === -Infinity) return '0 s';
+  if (Number.isNaN(l)) return '—';
+  if (l < -9) return '< 1 ns';
+  if (l > LOG_UNIVERSE) return `≈ ${fmtLog(l - Math.log10(YEAR))} años${short ? ' 🌌' : ': más que la edad del universo'}`;
+  let unit = TIME_UNITS[0];
+  for (const u of TIME_UNITS) if (l >= Math.log10(u[1]) - 1e-9) unit = u;
+  const lv = l - Math.log10(unit[1]);
+  const value = lv >= 4 ? fmtLog(lv, 4) : (10 ** lv).toLocaleString('es', { maximumFractionDigits: lv < 1 ? 2 : 1 });
+  return `${value} ${value !== '1' && unit[2] ? unit[2] : unit[0]}`;
+}
+
+const SAMPLES = 240;
+
+function niceStep(range, count) {
+  const raw = range / count, mag = 10 ** Math.floor(Math.log10(raw)), f = raw / mag;
+  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag;
+}
+// Rótulos de la derecha: en el orden de las líneas y separados al menos `gap` para que no se pisen.
+function spreadLabels(items, gap, top, bottom) {
+  const sorted = [...items].sort((a, b) => a.y - b.y);
+  for (let i = 1; i < sorted.length; i++) sorted[i].y = Math.max(sorted[i].y, sorted[i - 1].y + gap);
+  const overflow = sorted.length ? sorted[sorted.length - 1].y - bottom : 0;
+  if (overflow > 0) {
+    sorted[sorted.length - 1].y -= overflow;
+    for (let i = sorted.length - 2; i >= 0; i--) sorted[i].y = Math.min(sorted[i].y, sorted[i + 1].y - gap);
+  }
+  for (const it of sorted) it.y = Math.max(it.y, top);
+}
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-complejidad-comparador';
+    const DEFAULTS = { calT: 1, calUnit: 'ms', calN: 1000, checked: ['n', 'nlogn', 'n2', '2n'], customs: [], nMax: 20, yLog: false,
+      consts: {}, speedK: 1000, speedBudget: 3600 };
+
+    const calT = ref(DEFAULTS.calT);
+    const calUnit = ref(DEFAULTS.calUnit);
+    const calN = ref(DEFAULTS.calN);
+    const checked = ref([...DEFAULTS.checked]);
+    const customs = ref([]);
+    const nMax = ref(DEFAULTS.nMax);
+    const yLog = ref(DEFAULTS.yLog);
+    const consts = ref({});                  // id → constante que multiplica a f(n) (1 si no está)
+    const speedK = ref(DEFAULTS.speedK);
+    const speedBudget = ref(DEFAULTS.speedBudget);
+
+    const newExpr = ref('');
+    const newName = ref('');
+    const customError = ref('');
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+
+    // Cada función con su constante aplicada (k · f(n)): cambia el rótulo, el LaTeX y log10 (+ log10 k).
+    const allFuncs = computed(() => {
+      const base = [...CLASSICS];
+      for (const c of customs.value) { try { base.push(makeCustom(c)); } catch (e) { /* inválida: se omite */ } }
+      return base.map(f => {
+        const k = consts.value[f.id] ?? 1;
+        if (k === 1) return { ...f, baseLabel: f.label };
+        const lk = Math.log10(k);
+        return { ...f, baseLabel: f.label, label: `${fmt(k)}·${f.label}`, tex: `${fmt(k).replace(',', '{,}')} \\cdot ${f.tex}`, log10: n => f.log10(n) + lk };
+      });
+    });
+    function setConst(id, v) {
+      const next = { ...consts.value };
+      if (v > 0 && v !== 1) next[id] = v; else delete next[id];
+      consts.value = next;
+    }
+    function isPreset(p) {
+      const ids = p.ids ?? allFuncs.value.map(f => f.id);
+      return ids.length === checked.value.length && ids.every(id => checked.value.includes(id));
+    }
+    function applyPreset(p) { checked.value = p.ids ? [...p.ids] : allFuncs.value.map(f => f.id); }
+    const shownFuncs = computed(() => allFuncs.value.filter(f => checked.value.includes(f.id)));
+    const colorOf = f => { const k = allFuncs.value.indexOf(f); return PALETTES[isDark.value ? 'dark' : 'light'][k % 8]; };
+    const dashOf = f => DASHES[Math.floor(allFuncs.value.indexOf(f) / 8) % DASHES.length];
+
+    // ── Calibración: un O(n) tarda T con N → c = T / N segundos por operación ──
+    const calError = computed(() => {
+      if (!(calT.value > 0)) return 'El tiempo tiene que ser un número mayor que 0.';
+      if (!(Number.isInteger(calN.value) && calN.value >= 2)) return 'N tiene que ser un entero ≥ 2.';
+      return '';
+    });
+    const logC = computed(() => calError.value ? NaN
+      : Math.log10(calT.value * CAL_UNITS.find(u => u.id === calUnit.value).s / calN.value));
+    const timeLog = (f, N) => logC.value + f.log10(N);
+    function timeClass(l) {
+      if (!Number.isFinite(l) && !(l > 0)) return '';
+      return l > Math.log10(100 * YEAR) ? 'time-hopeless' : l > Math.log10(86400) ? 'time-slow' : '';
+    }
+
+    // ── Inverso: el N más grande con c · f(N) ≤ presupuesto (búsqueda binaria; supone f creciente) ──
+    function maxN(f, budgetS) {
+      const limit = Math.log10(budgetS) - logC.value;
+      const fits = N => !(f.log10(N) > limit);   // NaN no entra
+      if (!fits(1)) return 0;
+      let hi = 2;
+      while (hi <= MAX_SEARCH_N && fits(hi)) hi *= 2;
+      if (hi > MAX_SEARCH_N) return Infinity;
+      let lo = hi / 2;
+      while (hi - lo > 1) { const mid = Math.floor((lo + hi) / 2); if (fits(mid)) lo = mid; else hi = mid; }
+      return lo;
+    }
+    function maxNLabel(f, budgetS) {
+      const N = maxN(f, budgetS);
+      if (N === Infinity) return f.log10(MAX_SEARCH_N) === f.log10(1) ? 'cualquier N' : `> 10${sup(Math.log10(MAX_SEARCH_N))}`;
+      return N === 0 ? 'ni N = 1' : fmtLog(Math.log10(N));
+    }
+
+    // ── Computadora k veces más rápida: el mismo presupuesto rinde k veces más operaciones ──
+    function speedGrowth(f) {
+      const before = maxN(f, speedBudget.value), after = maxN(f, speedBudget.value * speedK.value);
+      if (!Number.isFinite(before) || !Number.isFinite(after) || before === 0) return '—';
+      const ratio = after / before;
+      return ratio >= 1.5 ? `× ${fmt(ratio)}` : `+ ${fmt(after - before)}`;
+    }
+
+    // ── Cruces entre las marcadas: donde k₁·f₁(n) = k₂·f₂(n), buscando cambios de signo de la
+    // diferencia de log10 en una grilla logarítmica de n ∈ [1,01; 10¹⁵] y afinando por bisección ──
+    const crossings = computed(() => {
+      const fs = shownFuncs.value, out = [];
+      const lo = Math.log(1.01), hi = Math.log(MAX_SEARCH_N), STEPS = 1500;
+      for (let i = 0; i < fs.length; i++) for (let j = i + 1; j < fs.length; j++) {
+        const a = fs[i], b = fs[j];
+        const diff = x => a.log10(Math.exp(x)) - b.log10(Math.exp(x));
+        let px = lo, pd = diff(lo);
+        for (let s = 1; s <= STEPS; s++) {
+          const x = lo + (hi - lo) * s / STEPS, d = diff(x);
+          if (Number.isFinite(pd) && Number.isFinite(d) && pd !== 0 && d !== 0 && Math.sign(pd) !== Math.sign(d)) {
+            let l = px, h = x;
+            for (let it = 0; it < 60; it++) { const m = (l + h) / 2; if (Math.sign(diff(m)) === Math.sign(pd)) l = m; else h = m; }
+            const n = Math.exp((l + h) / 2);
+            // Los cruces pegados a n = 1 son ruido (log n vale 0 ahí): no se muestran.
+            if (n >= 1.5) out.push({ key: `${a.id}-${b.id}-${s}`, a, b, n, winner: d < 0 ? a : b });
+          }
+          px = x; pd = d;
+        }
+      }
+      return out.sort((x, y) => x.n - y.n);
+    });
+    const fmtN = n => n < 100 ? n.toLocaleString('es', { maximumFractionDigits: 1 }) : fmtLog(Math.log10(Math.round(n)));
+
+    // ── Gráfico ──
+    // Se dibuja en píxeles al ancho real de la card (sin viewBox: en un template dentro del HTML el
+    // navegador pasa los atributos a minúscula y "viewbox" no lo entiende el SVG). l/r/t/b son los márgenes.
+    const CH = reactive({ w: 820, h: 360, l: 64, r: 76, t: 12, b: 34 });
+    const hover = ref(null);
+    const chartWrapEl = ref(null);
+    const chartResize = new ResizeObserver(([entry]) => { CH.w = Math.max(320, Math.floor(entry.contentRect.width)); });
+    watch(chartWrapEl, el => { chartResize.disconnect(); if (el) chartResize.observe(el); });
+    onBeforeUnmount(() => chartResize.disconnect());
+    const chart = computed(() => {
+      const funcs = shownFuncs.value;
+      const nHi = Math.max(2, nMax.value || 2);
+      const xOf = n => CH.l + (n - 1) / (nHi - 1) * (CH.w - CH.l - CH.r);
+      const ns = Array.from({ length: SAMPLES + 1 }, (_, k) => 1 + (nHi - 1) * k / SAMPLES);
+      const raw = funcs.map(f => ({ f, logs: ns.map(n => f.log10(n)) }));
+      const finite = raw.flatMap(r => r.logs).filter(Number.isFinite);
+      const maxLog = finite.length ? Math.max(...finite, 0) : 0;
+      const plotH = CH.h - CH.t - CH.b, baseY = CH.h - CH.b;
+
+      let yOf, yTicks;
+      if (yLog.value) {
+        const top = Math.max(1, Math.ceil(maxLog));
+        yOf = l => baseY - Math.max(0, Math.min(l, top)) / top * plotH;
+        const step = Math.max(1, Math.ceil(top / 8));
+        yTicks = [];
+        for (let e = 0; e <= top; e += step) yTicks.push({ y: yOf(e), label: e === 0 ? '1' : e < 4 ? String(10 ** e) : `10${sup(e)}` });
+      } else {
+        const yMax = 10 ** maxLog;
+        yOf = l => baseY - Math.max(0, Math.min(10 ** l, yMax)) / yMax * plotH;
+        const step = niceStep(yMax, 5);
+        yTicks = [];
+        for (let v = 0; v <= yMax * 1.0001; v += step) yTicks.push({ y: baseY - v / yMax * plotH, label: fmtLog(Math.log10(v || 0)) });
+      }
+      const xStep = niceStep(nHi - 1, 8);
+      const xTicks = [{ x: xOf(1), label: '1' }];
+      for (let v = xStep; v <= nHi; v += xStep) if (v > 1) xTicks.push({ x: xOf(v), label: fmt(v) });
+
+      const series = raw.map(({ f, logs }) => {
+        let d = '';
+        logs.forEach((l, k) => {
+          if (Number.isNaN(l)) return;
+          d += `${d ? 'L' : 'M'}${xOf(ns[k]).toFixed(1)},${yOf(l).toFixed(1)}`;
+        });
+        return { id: f.id, d, color: colorOf(f), dash: dashOf(f), label: f.label, labelY: yOf(logs[logs.length - 1]) };
+      });
+      const labels = series.map(s => ({ s, y: s.labelY }));
+      spreadLabels(labels, 14, CH.t + 6, baseY);
+      for (const it of labels) it.s.labelY = it.y;
+      // Marcas de cruce; si dos rótulos quedarían pegados, el segundo se omite (el punto queda).
+      let lastLabelX = -Infinity;
+      const marks = crossings.value.filter(x => x.n <= nHi).map(x => {
+        const mx = xOf(x.n), showLabel = mx - lastLabelX > 44;
+        if (showLabel) lastLabelX = mx;
+        return { key: x.key, x: mx, y: yOf(x.a.log10(x.n)), label: showLabel ? `n≈${fmtN(x.n)}` : '' };
+      });
+      return { series, yTicks, xTicks, xOf, yOf, nHi, marks };
+    });
+
+    function onChartMove(e) {
+      const svg = e.currentTarget.ownerSVGElement;
+      const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+      const c = chart.value;
+      const n = Math.round(Math.min(c.nHi, Math.max(1, 1 + (pt.x - CH.l) / (CH.w - CH.l - CH.r) * (c.nHi - 1))));
+      const x = c.xOf(n);
+      const rows = shownFuncs.value.map(f => {
+        const l = f.log10(n);
+        return { id: f.id, label: f.label, color: colorOf(f), dash: dashOf(f), l, value: fmtLog(l), y: c.yOf(l) };
+      }).sort((a, b) => { const va = Number.isFinite(a.l) ? a.l : -Infinity, vb = Number.isFinite(b.l) ? b.l : -Infinity; return va === vb ? 0 : vb > va ? 1 : -1; });
+      // El tooltip va del lado contrario al cursor para no taparlo.
+      const tipStyle = x > CH.w / 2 ? { right: `${CH.w - x + 12}px` } : { left: `${x + 12}px` };
+      hover.value = { n, x, rows, points: rows.filter(r => Number.isFinite(r.l)), tipStyle };
+    }
+
+    // ── Funciones propias ──
+    function addCustom() {
+      const expr = newExpr.value.trim();
+      if (!expr) { customError.value = 'Escribí una expresión en función de n.'; return; }
+      let fn;
+      try { fn = makeCustom({ id: 'tmp', expr, name: '' }); } catch (e) { customError.value = e.message; return; }
+      const probe = fn.log10(10);
+      if (Number.isNaN(probe)) { customError.value = 'La expresión no da un número positivo para n = 10.'; return; }
+      const id = `c${Date.now().toString(36)}`;
+      customs.value.push({ id, expr, name: newName.value.trim() });
+      checked.value.push(id);
+      newExpr.value = '';
+      newName.value = '';
+      customError.value = '';
+      nextTick(renderMath);
+    }
+    function removeCustom(id) {
+      customs.value = customs.value.filter(c => c.id !== id);
+      checked.value = checked.value.filter(x => x !== id);
+    }
+
+    // ── KaTeX (render manual): la columna f(n) de la tabla ──
+    function renderMath() {
+      for (const f of allFuncs.value) {
+        const el = document.getElementById(`tex-${f.id}`);
+        if (el) katex.render(f.tex, el, { throwOnError: false });
+      }
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+    }
+
+    // ── Persistencia (autoguardado) + compartir por URL (#d=...) ──
+    function currentState() {
+      return { calT: calT.value, calUnit: calUnit.value, calN: calN.value, checked: checked.value, customs: customs.value, nMax: nMax.value, yLog: yLog.value,
+        consts: consts.value, speedK: speedK.value, speedBudget: speedBudget.value };
+    }
+    function applyState(data) {
+      calT.value = data.calT ?? calT.value;
+      calUnit.value = CAL_UNITS.some(u => u.id === data.calUnit) ? data.calUnit : calUnit.value;
+      calN.value = data.calN ?? calN.value;
+      customs.value = Array.isArray(data.customs) ? data.customs.filter(c => c && typeof c.expr === 'string') : customs.value;
+      checked.value = Array.isArray(data.checked) ? [...data.checked] : checked.value;
+      nMax.value = data.nMax ?? nMax.value;
+      yLog.value = data.yLog ?? yLog.value;
+      consts.value = data.consts && typeof data.consts === 'object' ? { ...data.consts } : consts.value;
+      speedK.value = data.speedK ?? speedK.value;
+      speedBudget.value = BUDGETS.some(b => b.s === data.speedBudget) ? data.speedBudget : speedBudget.value;
+    }
+    function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState())); }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        applyState(JSON.parse(raw));
+      } catch (e) { /* datos corruptos: arrancar con los valores por defecto */ }
+    }
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer la configuración de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo": volver a los valores de ejemplo ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { if (newConfirm.value) newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      applyState({ ...DEFAULTS, checked: [...DEFAULTS.checked], customs: [], consts: {} });
+      newConfirm.value = false;
+    }
+
+    loadInitialState();
+    watch([calT, calUnit, calN, checked, customs, nMax, yLog, consts, speedK, speedBudget], persist, { deep: true });
+    watch([customs, consts], () => nextTick(renderMath), { deep: true });
+    nextTick(renderMath);
+
+    return {
+      CAL_UNITS, N_COLUMNS, BUDGETS, PRESETS, CH,
+      consts, setConst, isPreset, applyPreset, speedK, speedBudget, speedGrowth, crossings, fmtN,
+      calT, calUnit, calN, checked, nMax, yLog, calError, logC,
+      allFuncs, shownFuncs, colorOf, dashOf, timeLog, timeClass, humanTime, maxNLabel, fmt, fmtPow10,
+      chart, hover, chartWrapEl, onChartMove,
+      newExpr, newName, customError, addCustom, removeCustom,
+      isDark, toggleTheme,
+      shareCopied, shareCurrentState,
+      newConfirm, handleNewClick,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
