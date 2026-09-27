@@ -24,12 +24,19 @@
     #app { display: flex; flex-direction: column; height: 100vh; }
     .canvas-container { flex: 1 1 auto; position: relative; overflow: hidden; }
     canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    canvas.painting { cursor: crosshair; }
     .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
     .empty-state-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
     .floating-toolbar { position: absolute; transform: translate(-50%, -100%); margin-top: -8px; white-space: nowrap; }
     .floating-label-input { position: absolute; transform: translate(-50%, -50%); text-align: center; }
     .connect-hint { position: absolute; top: .75rem; left: 50%; transform: translateX(-50%); }
     .equation-panel { position: absolute; top: .75rem; right: .75rem; width: 320px; }
+    .paint-panel { position: absolute; top: .75rem; left: .75rem; }
+    .grow-panel { position: absolute; transform: translate(-50%, 8px); width: 250px; }
+    .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--bs-border-color); padding: 0; line-height: 1; font-size: .75rem; }
+    .line-btn { padding: 0 .25rem; height: 26px; }
+    /* box-shadow y no outline: Bootstrap anula el outline de un botón con foco tras un clic */
+    .swatch.active, .line-btn.active { box-shadow: 0 0 0 2px var(--bs-body-bg), 0 0 0 5px var(--bs-emphasis-color); }
   </style>
 </head>
 <body>
@@ -44,6 +51,13 @@
       <button class="btn btn-sm" :class="newTreeConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewTreeClick" title="Borrar todo y empezar un árbol nuevo">
         {{ newTreeConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
       </button>
+      <button class="btn btn-sm btn-outline-light" @click="undo" :disabled="!undoStack.length" title="Deshacer el último cambio (Ctrl+Z)">↩️ Deshacer</button>
+      <button class="btn btn-sm" :class="showRepeated ? 'btn-light' : 'btn-outline-light'" @click="toggleRepeated" v-if="nodes.length"
+        title="Pintar del mismo color los nodos con la misma etiqueta (subproblemas repetidos)">🔁 Repetidos</button>
+      <div class="btn-group btn-group-sm" v-if="nodes.length">
+        <button class="btn btn-outline-light" @click="exportPNG(false)" title="Descargar PNG del árbol completo, con el fondo de niveles">⬇️ PNG</button>
+        <button class="btn btn-outline-light" @click="exportPNG(true)" title="Descargar PNG solo del árbol, fondo transparente y margen de 1em">⬇️ PNG sin fondo</button>
+      </div>
       <button class="btn btn-sm btn-outline-light" @click="toggleEquation" title="Mostrar/ocultar la ecuación de recurrencia">🧮 Ecuación</button>
       <button class="btn btn-sm btn-outline-light" @click="shareCurrentDiagram" title="Copiar un link para compartir este diagrama">
         {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
@@ -56,6 +70,7 @@
   <div class="canvas-container" ref="containerEl">
     <canvas
       ref="canvasEl"
+      :class="{ painting: paintColor !== null || paintStyle !== null }"
       @mousedown="onCanvasMouseDown"
       @mousemove="onCanvasMouseMove"
       @mouseup="onCanvasMouseUp"
@@ -77,21 +92,55 @@
       </div>
     </div>
 
+    <div class="card shadow-sm paint-panel" v-if="nodes.length">
+      <div class="card-body p-2 d-flex gap-1 align-items-center">
+        <button v-for="c in DRACULA" :key="c.hex" class="swatch" :class="{ active: paintColor === c.hex }"
+          :style="{ background: c.hex }" :title="`Pintar nodos de ${c.name}`" @click="togglePaint(c.hex)"></button>
+        <button class="swatch bg-body" :class="{ active: paintColor === '' }" title="Quitar color de los nodos" @click="togglePaint('')">✖</button>
+        <div class="vr mx-1"></div>
+        <button v-for="(name, st) in LINE_STYLES" :key="st" class="btn btn-sm btn-outline-secondary line-btn" :class="{ active: paintStyle === st }"
+          :title="`Pintar flechas con línea ${name}`" @click="toggleLineStyle(st)">
+          <svg width="28" height="10"><line x1="3" y1="5" x2="25" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round" :stroke-dasharray="DASHES[st].join(' ')" /></svg>
+        </button>
+      </div>
+    </div>
+
     <div class="floating-toolbar btn-group btn-group-sm shadow-sm"
       v-if="selectedId && !editingId"
       :style="toolbarStyle">
       <button class="btn btn-outline-secondary" @click="addChild(selectedId)" title="Agregar hijo">➕</button>
+      <button class="btn" :class="growOpen ? 'btn-success' : 'btn-outline-secondary'" @click="growOpen = !growOpen" title="Crecimiento rápido: varios niveles de hijos de una vez">🌿</button>
       <button class="btn" :class="connectingFromId === selectedId ? 'btn-primary' : 'btn-outline-secondary'" @click="startConnecting(selectedId)" title="Conectar a un nodo existente (DAG)">🔗</button>
       <button class="btn btn-outline-secondary" @click="startEditLabel(selectedId)" title="Editar etiqueta">✏️</button>
+      <button class="btn btn-outline-secondary" @click="startEditLabel(selectedId, 'ret')" title="Valor de retorno (vacío = sin valor)">⤴️</button>
       <button class="btn" :class="deleteConfirmId === selectedId ? 'btn-danger' : 'btn-outline-danger'" @click="handleDeleteClick(selectedId)" title="Eliminar (y su subárbol)">
         {{ deleteConfirmId === selectedId ? '¿Seguro?' : '🗑️' }}
       </button>
+    </div>
+
+    <div class="card shadow-sm grow-panel" v-if="growOpen && selectedId && !editingId" :style="growPanelStyle">
+      <div class="card-body p-2">
+        <div class="d-flex gap-2 mb-2">
+          <div>
+            <label class="form-label small text-muted mb-0">Niveles</label>
+            <input type="number" class="form-control form-control-sm" min="1" v-model.number="growLevels" @keyup.enter="growSubtree(selectedId)" />
+          </div>
+          <div>
+            <label class="form-label small text-muted mb-0">Hijos por nodo</label>
+            <input type="number" class="form-control form-control-sm" min="1" v-model.number="growChildren" @keyup.enter="growSubtree(selectedId)" />
+          </div>
+        </div>
+        <button class="btn btn-dark btn-sm w-100" :disabled="!growCount || growCount > MAX_GROW" @click="growSubtree(selectedId)">
+          {{ growCount > MAX_GROW ? `Demasiados (${growCount} > ${MAX_GROW})` : `🌿 Crear ${growCount} nodo${growCount === 1 ? '' : 's'}` }}
+        </button>
+      </div>
     </div>
 
     <input v-if="editingId"
       class="floating-label-input form-control form-control-sm"
       :style="editorStyle"
       v-model="editingLabel"
+      :placeholder="editingField === 'ret' ? 'valor de retorno' : ''"
       @keyup.enter="confirmEditLabel"
       @keyup.esc="cancelEditLabel"
       @blur="confirmEditLabel"
@@ -127,6 +176,28 @@
 <script>
 const { createApp, ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } = Vue;
 
+// Colores de acento del tema Dracula (https://draculatheme.com/contribute), igual que grafos/editor.html.
+const DRACULA = [
+  { name: 'cyan', hex: '#8be9fd' }, { name: 'verde', hex: '#50fa7b' }, { name: 'naranja', hex: '#ffb86c' },
+  { name: 'rosa', hex: '#ff79c6' }, { name: 'violeta', hex: '#bd93f9' }, { name: 'rojo', hex: '#ff5555' },
+  { name: 'amarillo', hex: '#f1fa8c' }, { name: 'gris azulado', hex: '#6272a4' },
+];
+
+const LINE_STYLES = { solid: 'normal', dotted: 'punteada', dashed: 'de guiones' };
+// Mismos trazos que el editor de grafos, como arrays para ctx.setLineDash.
+const DASHES = { solid: [], dotted: [1, 4], dashed: [8, 5] };
+
+// Mismo color con menos brillo (R, G y B escalados por igual: conserva el tono), para el borde de un nodo pintado.
+function darken(hex, factor = 0.7) {
+  return '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * factor).toString(16).padStart(2, '0')).join('');
+}
+// Texto oscuro o claro (también de Dracula) según la luminancia relativa del fondo (WCAG).
+function textColorOn(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? '#282a36' : '#f8f8f2';
+}
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-recursion-call-tree';
@@ -140,6 +211,8 @@ createApp({
     const selectedId = ref(null);
     const editingId = ref(null);
     const editingLabel = ref('');
+    const editingField = ref('label'); // 'label' o 'ret' (valor de retorno)
+    const showRepeated = ref(false);
     const connectingFromId = ref(null);
     const deleteConfirmId = ref(null);
     const selectedEdgeId = ref(null);
@@ -173,8 +246,32 @@ createApp({
       equationSource.value = data.equation || '';
       showEquation.value = !!data.showEquation;
     }
+    // ── Deshacer: cada persist() que cambia el estado apila el anterior (como JSON) ──
+    const MAX_UNDO = 100;
+    const undoStack = ref([]);
+    let lastSaved = null;
     function persist() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
+      const json = JSON.stringify(currentState());
+      if (lastSaved !== null && json !== lastSaved) {
+        undoStack.value.push(lastSaved);
+        if (undoStack.value.length > MAX_UNDO) undoStack.value.shift();
+      }
+      lastSaved = json;
+      localStorage.setItem(STORAGE_KEY, json);
+    }
+    function undo() {
+      const prev = undoStack.value.pop();
+      if (!prev) return;
+      applyState(JSON.parse(prev));
+      lastSaved = prev;
+      localStorage.setItem(STORAGE_KEY, prev);
+      clearSelection();
+      editingId.value = null;
+      growOpen.value = false;
+      computeLayout();
+      if (!userAdjustedCamera.value) fitToView();
+      draw();
+      if (showEquation.value) nextTick(renderEquation);
     }
     function loadFromStorage() {
       try {
@@ -231,6 +328,37 @@ createApp({
       afterMutation();
       selectedId.value = child.id;
       nextTick(() => startEditLabel(child.id));
+    }
+
+    // ── Crecimiento rápido: `growLevels` niveles debajo del nodo, con `growChildren` hijos cada nodo
+    // (crece exponencialmente: k + k² + … + k^niveles nodos). Los hijos heredan la etiqueta del padre, como addChild ──
+    // ponytail: tope fijo de nodos por operación para no colgar el canvas; subirlo si hace falta.
+    const MAX_GROW = 256;
+    const growOpen = ref(false);
+    const growLevels = ref(2);
+    const growChildren = ref(2);
+    const growCount = computed(() => {
+      const levels = growLevels.value, k = growChildren.value;
+      if (!Number.isInteger(levels) || !Number.isInteger(k) || levels < 1 || k < 1) return 0;
+      let total = 0;
+      for (let l = 1; l <= levels; l++) total += k ** l;
+      return total;
+    });
+    function growSubtree(nodeId) {
+      if (!growCount.value || growCount.value > MAX_GROW) return;
+      let frontier = nodes.value.filter(n => n.id === nodeId);
+      for (let l = 0; l < growLevels.value; l++) {
+        const next = [];
+        for (const parent of frontier) {
+          for (let i = 0; i < growChildren.value; i++) {
+            next.push({ id: makeId(), label: parent.label, parentId: parent.id, depth: 0, x: 0, y: 0 });
+          }
+        }
+        nodes.value.push(...next);
+        frontier = next;
+      }
+      growOpen.value = false;
+      afterMutation();
     }
 
     function collectSubtreeIds(nodeId) {
@@ -311,17 +439,23 @@ createApp({
     }
 
     // ── Edición de etiqueta ──
-    function startEditLabel(nodeId) {
+    function startEditLabel(nodeId, field = 'label') {
       const node = nodes.value.find(n => n.id === nodeId);
       if (!node) return;
       editingId.value = nodeId;
-      editingLabel.value = node.label;
+      editingField.value = field;
+      editingLabel.value = node[field] ?? '';
       nextTick(() => { labelInputEl.value?.focus(); labelInputEl.value?.select(); });
     }
     function confirmEditLabel() {
       if (!editingId.value) return;
       const node = nodes.value.find(n => n.id === editingId.value);
-      if (node) node.label = editingLabel.value.trim() || node.label;
+      const value = editingLabel.value.trim();
+      if (node && editingField.value === 'ret') {
+        if (value) node.ret = value; else delete node.ret;
+      } else if (node) {
+        node.label = value || node.label;
+      }
       editingId.value = null;
       persist();
       draw();
@@ -417,7 +551,7 @@ createApp({
     }
     function onCanvasMouseUp() {
       isPanning = false;
-      if (canvasEl.value) canvasEl.value.style.cursor = 'grab';
+      if (canvasEl.value) canvasEl.value.style.cursor = '';
     }
 
     function onCanvasWheel(e) {
@@ -458,8 +592,71 @@ createApp({
       return null;
     }
 
+    // Flecha padre → hijo bajo el mouse: devuelve el hijo, que guarda el trazo de la flecha que le llega.
+    function hitTestTreeEdge(sx, sy) {
+      const THRESHOLD = 8;
+      for (const n of nodes.value) {
+        if (n.parentId == null) continue;
+        const parent = nodes.value.find(p => p.id === n.parentId);
+        if (!parent) continue;
+        const { x1, y1, x2, y2 } = treeEdgeEndpoints(parent, n);
+        const dx = x2 - x1, dy = y2 - y1;
+        const t = Math.max(0, Math.min(1, ((sx - x1) * dx + (sy - y1) * dy) / (dx * dx + dy * dy || 1)));
+        if (Math.hypot(sx - (x1 + t * dx), sy - (y1 + t * dy)) <= THRESHOLD) return n;
+      }
+      return null;
+    }
+
+    // ── Pintar (igual que grafos/editor.html): con un color elegido, el clic en un nodo lo pinta
+    // en vez de seleccionarlo; con un tipo de línea elegido, el clic en una flecha le cambia el trazo.
+    // '' = quitar color; null = modo apagado (volver a clickear lo mismo lo apaga). Un solo modo a la vez ──
+    const paintColor = ref(null);
+    const paintStyle = ref(null);
+    function clearSelection() {
+      selectedId.value = null;
+      selectedEdgeId.value = null;
+      deleteConfirmId.value = null;
+      connectingFromId.value = null;
+    }
+    // ── Subproblemas repetidos: mientras está activo, cada etiqueta que aparece más de una vez
+    // toma un color de DRACULA (en orden de nivel y de izquierda a derecha) y el resto va sin color ──
+    function toggleRepeated() {
+      showRepeated.value = !showRepeated.value;
+      if (showRepeated.value) paintColor.value = null;
+      draw();
+    }
+    function repeatedColors() {
+      const counts = {};
+      for (const n of nodes.value) counts[n.label] = (counts[n.label] || 0) + 1;
+      const colors = {};
+      let i = 0;
+      // ponytail: con más de 8 etiquetas repetidas los colores se repiten.
+      for (const n of [...nodes.value].sort((a, b) => a.depth - b.depth || a.x - b.x)) {
+        if (counts[n.label] > 1 && !(n.label in colors)) colors[n.label] = DRACULA[i++ % DRACULA.length].hex;
+      }
+      return colors;
+    }
+
+    function togglePaint(hex) { clearSelection(); showRepeated.value = false; paintStyle.value = null; paintColor.value = paintColor.value === hex ? null : hex; draw(); }
+    function toggleLineStyle(st) { clearSelection(); paintColor.value = null; paintStyle.value = paintStyle.value === st ? null : st; draw(); }
+    function paintAt(sx, sy) {
+      if (paintColor.value !== null) {
+        const n = hitTestNode(sx, sy);
+        if (n) n.color = paintColor.value;
+      } else {
+        const extra = hitTestEdge(sx, sy);
+        const child = extra ? null : hitTestTreeEdge(sx, sy);
+        if (extra) extra.style = paintStyle.value;
+        if (child) child.edgeStyle = paintStyle.value;
+      }
+      persist();
+      draw();
+    }
+
     function onCanvasClick(e) {
       if (didPan) { didPan = false; return; }
+      growOpen.value = false;
+      if (paintColor.value !== null || paintStyle.value !== null) { paintAt(e.offsetX, e.offsetY); return; }
       const hitNode = hitTestNode(e.offsetX, e.offsetY);
       if (hitNode) {
         if (connectingFromId.value) { tryConnect(hitNode.id); return; }
@@ -481,7 +678,16 @@ createApp({
     }
 
     function handleGlobalKeydown(e) {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return; // ahí manda el deshacer del navegador
+        e.preventDefault();
+        undo();
+        return;
+      }
       if (e.key !== 'Escape') return;
+      paintColor.value = null;
+      paintStyle.value = null;
+      growOpen.value = false;
       if (connectingFromId.value) cancelConnecting();
       if (editingId.value) cancelEditLabel();
       if (selectedEdgeId.value) selectedEdgeId.value = null;
@@ -540,15 +746,18 @@ createApp({
       ctx.fill();
     }
 
-    function drawArrow(ctx, x1, y1, x2, y2, color, lineWidth) {
+    function drawArrow(ctx, x1, y1, x2, y2, color, lineWidth, dash) {
       ctx.save();
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
       ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'round';
+      ctx.setLineDash(dash);
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
       ctx.stroke();
+      ctx.setLineDash([]);
       drawArrowhead(ctx, x2, y2, Math.atan2(y2 - y1, x2 - x1));
       ctx.restore();
     }
@@ -588,12 +797,13 @@ createApp({
         y: u * u * c.y1 + 2 * u * t * c.cy + t * t * c.y2,
       };
     }
-    function drawCurvedArrow(ctx, c, color, lineWidth) {
+    function drawCurvedArrow(ctx, c, color, lineWidth, dash) {
       ctx.save();
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
       ctx.lineWidth = lineWidth;
-      ctx.setLineDash([6, 4]);
+      ctx.lineCap = 'round';
+      ctx.setLineDash(dash);
       ctx.beginPath();
       ctx.moveTo(c.x1, c.y1);
       ctx.quadraticCurveTo(c.cx, c.cy, c.x2, c.y2);
@@ -612,19 +822,27 @@ createApp({
     function draw() {
       const canvas = canvasEl.value;
       if (!canvas || !containerEl.value) return;
-      const ctx = canvas.getContext('2d');
-      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      renderScene(canvas.getContext('2d'), containerEl.value.clientWidth, containerEl.value.clientHeight, { background: true, highlights: true });
+    }
+
+    // Dibuja el diagrama con la cámara actual. background: fondo + bandas de nivel;
+    // highlights: selección y conexión en curso (el export los deja afuera).
+    function renderScene(ctx, w, h, { background, highlights }) {
       const pal = palette();
+      const repeated = showRepeated.value ? repeatedColors() : null;
+      const colorOf = n => repeated ? (repeated[n.label] || '') : n.color;
 
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = pal.bg;
-      ctx.fillRect(0, 0, w, h);
+      if (background) {
+        ctx.fillStyle = pal.bg;
+        ctx.fillRect(0, 0, w, h);
+      }
 
       const maxDepth = nodes.value.reduce((m, n) => Math.max(m, n.depth), 0);
       const countsByDepth = {};
       for (const n of nodes.value) countsByDepth[n.depth] = (countsByDepth[n.depth] || 0) + 1;
 
-      for (let d = 0; d <= maxDepth; d++) {
+      for (let d = 0; background && d <= maxDepth; d++) {
         const yTop = worldToScreen(0, d * LEVEL_HEIGHT - LEVEL_HEIGHT / 2).y;
         const yBottom = worldToScreen(0, d * LEVEL_HEIGHT + LEVEL_HEIGHT / 2).y;
         const yMid = (yTop + yBottom) / 2;
@@ -647,25 +865,31 @@ createApp({
         const parent = nodes.value.find(p => p.id === n.parentId);
         if (!parent) continue;
         const { x1, y1, x2, y2 } = treeEdgeEndpoints(parent, n);
-        drawArrow(ctx, x1, y1, x2, y2, pal.edge, 1.5);
+        drawArrow(ctx, x1, y1, x2, y2, pal.edge, 1.5, DASHES[n.edgeStyle || 'solid']);
       }
 
       for (const n of nodes.value) {
         const p = worldToScreen(n.x, n.y);
         const nw = NODE_W * camera.scale, nh = NODE_H * camera.scale;
         roundedRectPath(ctx, p.x - nw / 2, p.y - nh / 2, nw, nh, 8 * camera.scale);
-        ctx.fillStyle = pal.nodeFill;
+        const color = colorOf(n);
+        ctx.fillStyle = color || pal.nodeFill;
         ctx.fill();
-        const isSelected = n.id === selectedId.value, isConnecting = n.id === connectingFromId.value;
+        const isSelected = highlights && n.id === selectedId.value, isConnecting = highlights && n.id === connectingFromId.value;
         ctx.lineWidth = (isSelected || isConnecting) ? 3 : 1.5;
-        ctx.strokeStyle = isSelected ? pal.selected : (isConnecting ? pal.connecting : pal.nodeStroke);
+        ctx.strokeStyle = isSelected ? pal.selected : (isConnecting ? pal.connecting : (color ? darken(color) : pal.nodeStroke));
         ctx.stroke();
 
-        ctx.fillStyle = pal.nodeText;
+        // Con valor de retorno, la etiqueta sube y el valor va en un segundo renglón más chico.
+        ctx.fillStyle = color ? textColorOn(color) : pal.nodeText;
         ctx.font = `${Math.max(10, 13 * camera.scale)}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(n.label, p.x, p.y, nw - 10);
+        ctx.fillText(n.label, p.x, n.ret ? p.y - 7 * camera.scale : p.y, nw - 10);
+        if (n.ret) {
+          ctx.font = `bold ${Math.max(9, 11 * camera.scale)}px system-ui, sans-serif`;
+          ctx.fillText(`→ ${n.ret}`, p.x, p.y + 9 * camera.scale, nw - 10);
+        }
       }
 
       // Flechas extra (DAG) se dibujan por encima de los nodos: quedan "por fuera",
@@ -674,9 +898,59 @@ createApp({
         const from = nodes.value.find(n => n.id === e.from);
         const to = nodes.value.find(n => n.id === e.to);
         if (!from || !to) continue;
-        const isSelected = e.id === selectedEdgeId.value;
-        drawCurvedArrow(ctx, curveForEdge(from, to), isSelected ? pal.selected : pal.extraEdge, isSelected ? 2.5 : 1.5);
+        const isSelected = highlights && e.id === selectedEdgeId.value;
+        // Las flechas extra arrancan de guiones, para distinguirlas de las del árbol.
+        drawCurvedArrow(ctx, curveForEdge(from, to), isSelected ? pal.selected : pal.extraEdge, isSelected ? 2.5 : 1.5, DASHES[e.style || 'dashed']);
       }
+    }
+
+    // ── Exportar PNG: el árbol completo (no solo lo que se ve), dibujado con renderScene sobre un canvas aparte
+    // con una cámara temporal a escala 1. Con fondo: bandas de nivel y sus etiquetas; sin fondo: solo el árbol + 1em ──
+    const EXPORT_MARGIN = 16; // 1em
+    const BAND_LABEL_W = 70;  // lugar para "Nivel d / n nodos" a la izquierda
+    const EXPORT_SCALE = 2;   // px del PNG por px del diagrama, para que se vea nítido
+    function exportPNG(transparent) {
+      if (!nodes.value.length) return;
+      const saved = { ...camera };
+      Object.assign(camera, { scale: 1, offsetX: 0, offsetY: 0 });
+
+      // Bounding box en coordenadas de mundo (= pantalla con esta cámara): nodos y curvas de las flechas extra.
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      const include = (x, y) => { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); };
+      for (const n of nodes.value) { include(n.x - NODE_W / 2, n.y - NODE_H / 2); include(n.x + NODE_W / 2, n.y + NODE_H / 2); }
+      for (const e of extraEdges.value) {
+        const from = nodes.value.find(n => n.id === e.from), to = nodes.value.find(n => n.id === e.to);
+        if (!from || !to) continue;
+        const c = curveForEdge(from, to);
+        for (let s = 0; s <= 24; s++) { const pt = pointOnQuadratic(c, s / 24); include(pt.x, pt.y); }
+      }
+      if (!transparent) {
+        const maxDepth = nodes.value.reduce((m, n) => Math.max(m, n.depth), 0);
+        include(minX, -LEVEL_HEIGHT / 2);
+        include(maxX, maxDepth * LEVEL_HEIGHT + LEVEL_HEIGHT / 2);
+      }
+
+      const left = EXPORT_MARGIN + (transparent ? 0 : BAND_LABEL_W);
+      const top = transparent ? EXPORT_MARGIN : 0;
+      const w = Math.ceil(maxX - minX + left + EXPORT_MARGIN), h = Math.ceil(maxY - minY + top * 2);
+      camera.offsetX = left - minX;
+      camera.offsetY = top - minY;
+
+      const out = document.createElement('canvas');
+      out.width = w * EXPORT_SCALE;
+      out.height = h * EXPORT_SCALE;
+      const ctx = out.getContext('2d');
+      ctx.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, 0, 0);
+      renderScene(ctx, w, h, { background: !transparent, highlights: false });
+      Object.assign(camera, saved);
+
+      out.toBlob(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = transparent ? 'arbol-sin-fondo.png' : 'arbol.png';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      }, 'image/png');
     }
 
     // ── Posición de overlays HTML (toolbar / input de edición) ──
@@ -691,6 +965,12 @@ createApp({
       if (!n) return {};
       const p = worldToScreen(n.x, n.y);
       return { left: p.x + 'px', top: p.y + 'px', width: Math.max(60, NODE_W * camera.scale - 8) + 'px' };
+    });
+    const growPanelStyle = computed(() => {
+      const n = nodes.value.find(x => x.id === selectedId.value);
+      if (!n) return {};
+      const p = worldToScreen(n.x, n.y);
+      return { left: p.x + 'px', top: (p.y + NODE_H * camera.scale / 2) + 'px' };
     });
     const edgeToolbarStyle = computed(() => {
       const e = extraEdges.value.find(x => x.id === selectedEdgeId.value);
@@ -720,6 +1000,7 @@ createApp({
     onMounted(() => {
       loadInitialState();
       computeLayout();
+      lastSaved = JSON.stringify(currentState());
       resizeCanvasToDisplaySize();
       fitToView();
       draw();
@@ -741,6 +1022,9 @@ createApp({
       confirmEditLabel, cancelEditLabel, deleteExtraEdge, toggleTheme, fitToView,
       onCanvasMouseDown, onCanvasMouseMove, onCanvasMouseUp, onCanvasWheel, onCanvasClick,
       toolbarStyle, editorStyle, edgeToolbarStyle,
+      editingField, undo, undoStack, showRepeated, toggleRepeated, exportPNG,
+      MAX_GROW, growOpen, growLevels, growChildren, growCount, growSubtree, growPanelStyle,
+      DRACULA, LINE_STYLES, DASHES, paintColor, paintStyle, togglePaint, toggleLineStyle,
     };
   }
 }).mount('#app');

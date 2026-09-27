@@ -14,8 +14,14 @@ Visualizaciones interactivas para enseñar Programación Avanzada. Cada visualiz
 
 Permite:
 - Construir progresivamente el árbol de llamadas de una función recursiva (ej. Fibonacci): crear el nodo raíz y agregarle hijos, con el layout equilibrado recalculándose solo. Cada hijo nuevo arranca con la misma etiqueta que su padre (lista para sobreescribir si hace falta otra).
+- Crecimiento rápido (🌿 en la barra del nodo): elegir cuántos niveles y cuántos hijos por nodo, y se generan todos de una vez debajo del nodo (2 niveles de 2 hijos = 2 + 4 = 6 nodos), con la etiqueta del padre.
 - Editar la etiqueta de cualquier nodo, y borrar un nodo junto con todo su subárbol (con confirmación de 2 pasos).
 - Conectar dos nodos existentes con una flecha extra curva (DAG) para marcar que representan el mismo subproblema (memoización) — la flecha se puede seleccionar y quitar con un clic sin afectar los nodos.
+- Pintar nodos y cambiar el trazo de las flechas con la misma paleta (Dracula) y los mismos tipos de línea (normal, punteada, de guiones) que el editor de grafos: con un color o un trazo elegido, cada clic en un nodo o en una flecha (del árbol o extra) lo aplica; ✖ quita el color. Las flechas extra arrancan de guiones.
+- Valor de retorno opcional por nodo (⤴️ en la barra del nodo), que se muestra en un segundo renglón (`→ 3`).
+- "🔁 Repetidos": pinta del mismo color los nodos con la misma etiqueta (subproblemas repetidos, para motivar la memoización); mientras está activo, los colores pintados a mano no se muestran.
+- "↩️ Deshacer" (o Ctrl+Z): vuelve atrás cualquier cambio del diagrama, incluido un crecimiento rápido entero.
+- Exportar a PNG el árbol completo (no solo lo que se ve): "⬇️ PNG" con el fondo de niveles, o "⬇️ PNG sin fondo" con fondo transparente y solo el árbol con un margen de 1em. Los colores son los del tema actual.
 - Bandas horizontales por nivel de profundidad, cada una con degradado de color y etiquetada con el número de nivel y la cantidad de nodos en ese nivel; el total de nodos del diagrama se ve en un badge de la barra superior.
 - Pan y zoom libres, con un botón para reajustar la vista a todo el diagrama.
 - Una caja de texto opcional (arriba a la derecha) para escribir en LaTeX la ecuación de recurrencia que se está graficando (ej. `T(n) = T(n-1) + T(n-2)`), renderizada con KaTeX.
