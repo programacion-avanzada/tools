@@ -11,6 +11,7 @@ Visualizaciones interactivas para enseñar Programación Avanzada. Cada visualiz
 | Archivo | Tema |
 |---|---|
 | [`recursion/call-tree.html`](recursion/call-tree.html) | Árbol de Llamadas Recursivas (DAG) |
+| [`recursion/teorema-maestro.html`](recursion/teorema-maestro.html) | Teorema Maestro — T(n) = a·T(n/b) + O(n^c) |
 
 Permite:
 - Construir progresivamente el árbol de llamadas de una función recursiva (ej. Fibonacci): crear el nodo raíz y agregarle hijos, con el layout equilibrado recalculándose solo. Cada hijo nuevo arranca con la misma etiqueta que su padre (lista para sobreescribir si hace falta otra).
@@ -28,6 +29,12 @@ Permite:
 - Botón "🆕 Nuevo": borra todo el diagrama para empezar de cero (con confirmación de 2 pasos).
 - Autoguardado en el navegador (localStorage) y modo claro/oscuro, igual que el resto de las herramientas.
 - Botón "🔗 Compartir": copia un link que incluye todo el diagrama (árbol, flechas y ecuación) codificado en la URL — al abrirlo carga ese diagrama directamente, sin backend ni servidor intermedio.
+
+El Teorema Maestro analiza recurrencias por división T(n) = a·T(n/b) + O(n^c):
+- Se cargan a, b y c (o se elige un ejemplo: búsqueda binaria, merge sort, Karatsuba, Strassen, etc.) y muestra Θ(...) con el caso que aplica: domina la raíz (a < b^c), todos los niveles pesan igual (a = b^c) o dominan las hojas (a > b^c).
+- Desarrollo en KaTeX: el enunciado del teorema y la sustitución con los valores cargados (a vs b^c y su equivalente log_b a vs c).
+- Tabla del árbol de recursión para un n concreto: por nivel, cantidad de nodos, tamaño, costo por nodo y costo del nivel, con la razón r = a/b^c entre niveles y el total T(n). Al lado, un gráfico de barras con el costo de cada nivel, resaltando el que domina.
+- Autoguardado, "🆕 Nuevo", "🔗 Compartir" y modo claro/oscuro como el resto.
 
 ### Grafos
 

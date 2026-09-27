@@ -56,6 +56,8 @@ Las reglas de stack/idioma, **Modo claro/oscuro**, **Persistencia/"Nuevo"/Compar
 - Un computed `verdictBadge`/`verdictIcon`/`verdictText` resume en una frase + ícono + color qué rama de la recurrencia se tomó.
 - La solución se resuelve al cargar (`nextTick(solve)`) y también con el botón "Resolver".
 
+**Variante sin tabla clickeable (`recursion/teorema-maestro.html`)**: mismo layout de 2 columnas y mismas convenciones (watch + persist, KaTeX manual en `renderMath()` tras `nextTick`, banner + badge de veredicto), pero la columna derecha es un análisis que se recalcula en vivo al cambiar los inputs (sin botón "Resolver"): desarrollo en KaTeX, tabla por nivel y un gráfico de barras en HTML/CSS (sin librería). El color de caso se aplica con una clase `.case-*` que define `--case-bg`/`--case-strong` a partir de variables `--bs-*`.
+
 ## Familia 2: visualizaciones basadas en Canvas (`recursion/`)
 
 Para diagramas/grafos (árboles de llamadas, DAGs), no el layout de 2 columnas. Referencia: `recursion/call-tree.html`.
