@@ -253,9 +253,13 @@ const PSEUDOCODE = [
   '    RETORNAR (MST, pesoTotal)',
 ];
 
-// Desde 1: entran 1-2, 2-3 y 3-5, se descarta (5, 2, 5) y cierra 1-4 → W = 15.
-const DEFAULT_GRAPH_TEXT = '1-2:2\n1-4:6\n2-3:3\n2-4:8\n2-5:5\n3-5:4\n4-5:9';
-const DEFAULT_POSITIONS = { 1: { x: -160, y: -80 }, 2: { x: 0, y: -80 }, 3: { x: 160, y: -80 }, 4: { x: -80, y: 80 }, 5: { x: 80, y: 80 } };
+// Grafo del pizarrón (el mismo que kruskal.html). Desde a: entran ab, bd, de, bg, gf y gc;
+// se descartan (3, b, e), (4, a, d) y (5, a, f) → W = 16.
+const DEFAULT_GRAPH_TEXT = 'b-d:1\nf-g:1\na-b:2\nd-e:2\nb-e:3\na-d:4\nb-g:4\na-f:5\nc-g:6\nb-c:7\nb-f:8\nc-e:10';
+const DEFAULT_POSITIONS = {
+  a: { x: -125, y: -105 }, b: { x: 0, y: 0 }, c: { x: 125, y: 115 }, d: { x: 35, y: -160 },
+  e: { x: 160, y: -50 }, f: { x: -157, y: 55 }, g: { x: -33, y: 168 },
+};
 
 function edgeKey(a, b) { return [a, b].sort().join('|'); }
 // Orden de los nodos en los conjuntos: numérico si todas las etiquetas son números,
@@ -542,7 +546,7 @@ createApp({
     function resetToDefault() {
       newConfirm.value = false;
       graphError.value = '';
-      applyState({ graphText: DEFAULT_GRAPH_TEXT, positions: DEFAULT_POSITIONS, startId: '1' });
+      applyState({ graphText: DEFAULT_GRAPH_TEXT, positions: DEFAULT_POSITIONS, startId: 'a' });
       persist();
       userAdjustedCamera.value = false;
       nextTick(() => { resizeCanvasToDisplaySize(); fitToView(); });
