@@ -11,6 +11,7 @@ Visualizaciones interactivas para enseñar Programación Avanzada. Cada visualiz
 | Archivo | Tema |
 |---|---|
 | [`complejidad/comparador.html`](complejidad/comparador.html) | Órdenes de complejidad: tabla, gráfico y tiempos estimados |
+| [`complejidad/big-o.html`](complejidad/big-o.html) | Notación Big O: buscar c y n₀ para que T(n) ≤ c·g(n) |
 
 El comparador de órdenes de complejidad permite:
 - Ver la tabla clásica (1, log n, √n, n, n log n, n², n³, 2ⁿ, n!) con ejemplos de algoritmos, y marcar solo las funciones que se quieren comparar.
@@ -21,6 +22,15 @@ El comparador de órdenes de complejidad permite:
 - Una constante por función (ej. 100·n log n contra 2·n²): el gráfico marca dónde se cruzan y explica desde qué n conviene cada una (las constantes deciden con n chico, el orden con n grande).
 - "Con una computadora k veces más rápida": cuánto crece el N máximo de cada función (× k con n, × √k con n², apenas + log₂ k con 2ⁿ).
 - Autoguardado, "🆕 Nuevo", "🔗 Compartir" y modo claro/oscuro como el resto.
+
+El explorador de Big O permite:
+- Cargar una T(n) cualquiera (polinomio o expresión con `log`, `sqrt`, `sin`, `cos`, `abs`, `!`...) y una g(n) candidata, y mover c (slider logarítmico) y n₀ para ver en vivo si c·g(n) queda por encima de T(n) desde n₀.
+- Veredicto con la definición en KaTeX y la sustitución: ✅ se cumple (con c y n₀ concretos), ❌ primer n ≥ n₀ donde falla, o ⚠️ T(n)/g(n) crece sin cota (ninguna c alcanza: T ∉ O(g)). Se verifica numéricamente (todos los enteros hasta n₀ + 10.000 y una muestra hasta 10¹⁵) y lo aclara: es una comprobación, no una demostración.
+- Botones que calculan la c mínima para el n₀ actual y el n₀ mínimo para la c actual.
+- Gráfico de T(n) contra c·g(n) (zona n ≥ n₀ sombreada y tramos que fallan en rojo, como el dibujo de la teoría) o del cociente T(n)/g(n) contra la recta c; escala lineal o logarítmica. Las intersecciones entre las curvas se marcan con un punto y su n aproximado, y se listan debajo diciendo qué curva queda arriba desde ahí. Zoom con la rueda del mouse (centrado en el cursor), arrastrar para moverse y doble clic para volver a ver desde n = 0; el eje vertical se reajusta a lo que se ve.
+- Demostración algebraica paso a paso cuando T(n) es un polinomio y g(n) = a·nᵏ, como en el pizarrón: desarrolla, descarta los términos negativos y acota cada término por nᵏ para n ≥ 1 (ej. (n+1)² = n² + 2n + 1 ≤ n² + 2n² + n² = 4n², o sea c = 4 y n₀ = 1). Si el grado de T es mayor, explica por qué no es O.
+- Límite de T(n)/g(n) (exacto para polinomios, estimado si no) y qué significa: a una constante L → mismo orden, cota ajustada (sirve toda c > L); a 0 → cota válida pero holgada; a ∞ → T ∉ O(g).
+- Tabla de "Demostración" como la de la diapositiva (c | n | T(n) | c·g(n), verde si se cumple y rojo si no) y ejemplos precargados, incluido uno que no es O.
 
 ### Recursión
 

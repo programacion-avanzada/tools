@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Notación Big O</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+
+  <style>
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .cell-ok  { background-color: var(--bs-success-bg-subtle) !important; }
+    .cell-bad { background-color: var(--bs-danger-bg-subtle) !important; }
+    .cell-off { background-color: var(--bs-secondary-bg) !important; color: var(--bs-secondary-color) !important; }
+    .chart-wrap { position: relative; }
+    .chart-wrap > svg { display: block; }
+    .chart-grid { stroke: var(--bs-border-color); stroke-width: 1; }
+    .chart-axis { stroke: var(--bs-secondary-color); stroke-width: 1; }
+    .chart-tick { fill: var(--bs-secondary-color); font-size: 11px; }
+    .chart-label { font-size: 12px; fill: var(--bs-body-color); }
+    .chart-n0 { stroke: var(--bs-body-color); stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .chart-zone { fill: var(--bs-success-bg-subtle); opacity: .6; }
+    .chart-mark-label { paint-order: stroke; stroke: var(--bs-body-bg); stroke-width: 3px; }
+    .chart-cross { stroke: var(--bs-secondary-color); stroke-width: 1; stroke-dasharray: 3 3; }
+    .chart-tip { position: absolute; top: 0; pointer-events: none; min-width: 190px; z-index: 5; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand mb-0 h5">🔍 Notación Big O</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">Complejidad · T(n) ≤ c·g(n), n ≥ n₀</span>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver al ejemplo de (n+1)²">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir este análisis">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="container-fluid py-3">
+    <div class="row g-3">
+
+      <!-- PANEL IZQUIERDO -->
+      <div class="col-12 col-md-4 col-xl-3">
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">Funciones</div>
+          <div class="card-body">
+            <label class="form-label small mb-0">T(n): lo que cuesta el algoritmo</label>
+            <input class="form-control font-monospace" v-model="tExpr" placeholder="ej: (n+1)^2" />
+            <div class="alert alert-danger small py-1 px-2 mt-1 mb-0" v-if="tError">{{ tError }}</div>
+            <div id="tex-T" class="text-center my-2" v-show="!tError"></div>
+
+            <label class="form-label small mb-0">g(n): la cota candidata</label>
+            <input class="form-control font-monospace" v-model="gExpr" placeholder="ej: n^2" />
+            <div class="alert alert-danger small py-1 px-2 mt-1 mb-0" v-if="gError">{{ gError }}</div>
+            <div id="tex-g" class="text-center mt-2" v-show="!gError"></div>
+
+            <p class="small text-muted mt-2 mb-0">
+              Se puede usar <code>n</code>, números, <code>+ - * / ^</code>, paréntesis, <code>log</code> (base 2), <code>ln</code>, <code>sqrt</code>, <code>sin</code>, <code>cos</code>, <code>abs</code> y <code>!</code>.
+            </p>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">Constantes</div>
+          <div class="card-body">
+            <label class="form-label small mb-0">c</label>
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <input type="range" class="form-range" min="-1" max="3" step="0.01" v-model.number="cLog" title="Escala logarítmica: de 0,1 a 1000" />
+              <input type="number" class="form-control form-control-sm num" style="width: 6rem;" min="0" step="any" v-model.number="c" />
+            </div>
+            <label class="form-label small mb-0">n₀</label>
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <input type="range" class="form-range" min="0" :max="Math.max(nMax, n0)" step="1" v-model.number="n0" />
+              <input type="number" class="form-control form-control-sm num" style="width: 6rem;" min="0" step="1" v-model.number="n0" />
+            </div>
+            <div class="alert alert-danger small py-1 px-2 mb-2" v-if="constError">{{ constError }}</div>
+            <div class="d-grid gap-2" v-if="ready">
+              <button class="btn btn-sm btn-outline-secondary" @click="useMinC" :disabled="!Number.isFinite(minCValue)">
+                c mínima para n₀ = {{ n0 }}: <strong>{{ Number.isFinite(minCValue) ? fmtVal(minCValue) : 'no existe' }}</strong>
+              </button>
+              <button class="btn btn-sm btn-outline-secondary" @click="useMinN0" :disabled="minN0Value === null">
+                n₀ mínimo para c = {{ fmtVal(c) }}: <strong>{{ minN0Value === null ? 'no existe' : fmtVal(minN0Value) }}</strong>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">Ejemplos</div>
+          <div class="list-group list-group-flush small">
+            <button v-for="ex in EXAMPLES" :key="ex.name" type="button" class="list-group-item list-group-item-action"
+              :class="{ active: ex.t === tExpr && ex.g === gExpr }" @click="loadExample(ex)">
+              {{ ex.name }}
+            </button>
+          </div>
+        </div>
+
+        <details class="small text-muted mb-3">
+          <summary>¿Por qué T(n) ∈ O(g(n)) y no T(n) = O(g(n))?</summary>
+          O(g(n)) no es un número: es el conjunto de todas las funciones que no crecen más rápido que g(n). Por eso se escribe
+          T(n) ∈ O(g(n)). La bibliografía casi siempre escribe T(n) = O(g(n)) y significa lo mismo, pero ese signo no se comporta
+          como una igualdad: se lee "es de orden", no "es igual a".
+        </details>
+
+        <div class="mt-4 mb-4">
+          <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+        </div>
+
+      </div>
+
+      <!-- PANEL DERECHO -->
+      <div class="col-12 col-md-8 col-xl-9">
+
+        <div class="card" v-if="!ready">
+          <div class="card-body text-center text-muted py-5">
+            <div class="fs-1">🔍</div>
+            <p class="mt-2">Corregí las funciones o las constantes de la izquierda para ver el análisis.</p>
+          </div>
+        </div>
+
+        <template v-else>
+
+          <!-- Veredicto -->
+          <div class="card mb-3" :class="verdict.border">
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-12 col-lg-6">
+                  <p class="fw-semibold small text-muted text-uppercase mb-1">Definición</p>
+                  <div class="border rounded p-2 bg-body-tertiary overflow-auto" id="formula-box"></div>
+                </div>
+                <div class="col-12 col-lg-6">
+                  <p class="fw-semibold small text-muted text-uppercase mb-1">Con estos valores</p>
+                  <div class="border rounded p-2 bg-body-tertiary overflow-auto" id="subst-box"></div>
+                </div>
+              </div>
+              <span class="badge fs-6 text-wrap text-start mt-3" :class="verdict.cls">{{ verdict.icon }} {{ verdict.text }}</span>
+              <p class="small text-muted mt-2 mb-0">{{ verdict.note }}</p>
+            </div>
+          </div>
+
+          <!-- Análisis: demostración algebraica + límite -->
+          <div class="row g-3 mb-3">
+            <div class="col-12 col-xl-7">
+              <div class="card h-100">
+                <div class="card-header fw-semibold">✍️ Demostración algebraica</div>
+                <div class="card-body">
+                  <template v-if="proof.ok">
+                    <div class="border rounded p-2 bg-body-tertiary overflow-auto" id="proof-box"></div>
+                    <p class="small mt-2 mb-2">{{ proof.text }}</p>
+                    <button class="btn btn-sm btn-outline-secondary" @click="useProof"
+                      :disabled="c === proof.c && n0 === proof.n0">Usar c = {{ fmtVal(proof.c) }} y n₀ = {{ proof.n0 }}</button>
+                  </template>
+                  <p class="small mb-0" :class="proof.bad ? 'text-danger' : 'text-muted'" v-else>{{ proof.text }}</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-xl-5">
+              <div class="card h-100">
+                <div class="card-header fw-semibold">📐 Límite de T(n) / g(n)</div>
+                <div class="card-body">
+                  <div class="border rounded p-2 bg-body-tertiary overflow-auto" id="limit-box"></div>
+                  <span class="badge text-wrap text-start mt-2" :class="limitInfo.cls">{{ limitInfo.title }}</span>
+                  <p class="small mt-2 mb-0">{{ limitInfo.text }}</p>
+                  <p class="small text-muted mt-1 mb-0" v-if="!limitInfo.exact">Estimado numéricamente con n grande.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Gráfico -->
+          <div class="card mb-3">
+            <div class="card-header d-flex flex-wrap align-items-center gap-2">
+              <span class="fw-semibold me-auto">📊 {{ view === 'ratio' ? 'Cociente T(n) / g(n) contra c' : 'T(n) contra c·g(n)' }}</span>
+              <div class="btn-group btn-group-sm">
+                <button class="btn" :class="view === 'funcs' ? 'btn-secondary' : 'btn-outline-secondary'" @click="view = 'funcs'">Funciones</button>
+                <button class="btn" :class="view === 'ratio' ? 'btn-secondary' : 'btn-outline-secondary'" @click="view = 'ratio'">Cociente</button>
+              </div>
+              <div class="btn-group btn-group-sm">
+                <button class="btn" :class="!yLog ? 'btn-secondary' : 'btn-outline-secondary'" @click="yLog = false">Lineal</button>
+                <button class="btn" :class="yLog ? 'btn-secondary' : 'btn-outline-secondary'" @click="yLog = true">Log</button>
+              </div>
+              <div class="input-group input-group-sm" style="width: 15rem;" title="Rango de n que se grafica. También con la rueda del mouse (zoom) y arrastrando (mover)">
+                <span class="input-group-text">n de</span>
+                <input type="number" class="form-control num" min="0" step="any" v-model.number="nMin" />
+                <span class="input-group-text">a</span>
+                <input type="number" class="form-control num" min="0" step="any" v-model.number="nMax" />
+                <button class="btn btn-outline-secondary" type="button" @click="resetZoom" title="Volver a ver desde n = 0">⤢</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="chart-wrap" ref="chartWrapEl">
+                <svg :width="CH.w" :height="CH.h" role="img" :aria-label="view === 'ratio' ? 'Gráfico del cociente T(n)/g(n) y la recta c' : 'Gráfico de T(n) y c·g(n)'">
+                  <rect class="chart-zone" :x="chart.zoneX" :y="CH.t" :width="Math.max(0, CH.w - CH.r - chart.zoneX)" :height="CH.h - CH.t - CH.b" />
+                  <line v-for="t in chart.yTicks" :key="`gy${t.y}`" class="chart-grid" :x1="CH.l" :x2="CH.w - CH.r" :y1="t.y" :y2="t.y" />
+                  <text v-for="t in chart.yTicks" :key="`ty${t.y}`" class="chart-tick num" :x="CH.l - 6" :y="t.y" text-anchor="end" dominant-baseline="middle">{{ t.label }}</text>
+                  <text v-for="t in chart.xTicks" :key="`tx${t.x}`" class="chart-tick num" :x="t.x" :y="CH.h - CH.b + 16" text-anchor="middle">{{ t.label }}</text>
+                  <line class="chart-axis" :x1="CH.l" :x2="CH.w - CH.r" :y1="CH.h - CH.b" :y2="CH.h - CH.b" />
+                  <line class="chart-axis" :x1="CH.l" :x2="CH.l" :y1="CH.t" :y2="CH.h - CH.b" />
+                  <text class="chart-tick" :x="(CH.l + CH.w - CH.r) / 2" :y="CH.h - 4" text-anchor="middle">n</text>
+
+                  <template v-if="chart.n0Visible">
+                    <line class="chart-n0" :x1="chart.zoneX" :x2="chart.zoneX" :y1="CH.t" :y2="CH.h - CH.b" />
+                    <text class="chart-label" :x="chart.zoneX + 4" :y="CH.t + 12">n₀ = {{ n0 }}</text>
+                  </template>
+
+                  <path :d="chart.upper" fill="none" stroke="var(--bs-danger)" stroke-width="2.2" stroke-linejoin="round" />
+                  <path :d="chart.lower" fill="none" stroke="var(--bs-body-color)" stroke-width="2" stroke-linejoin="round" />
+                  <path :d="chart.bad" fill="none" stroke="var(--bs-danger)" stroke-width="6" stroke-opacity=".35" stroke-linecap="round" />
+                  <text class="chart-label" :x="CH.w - CH.r + 8" :y="chart.upperLabelY" dominant-baseline="middle">{{ view === 'ratio' ? `c = ${fmtVal(c)}` : 'c·g(n)' }}</text>
+                  <text class="chart-label" :x="CH.w - CH.r + 8" :y="chart.lowerLabelY" dominant-baseline="middle">{{ view === 'ratio' ? 'T(n)/g(n)' : 'T(n)' }}</text>
+
+                  <g v-for="m in chart.marks" :key="m.key">
+                    <circle :cx="m.x" :cy="m.y" r="4.5" fill="var(--bs-body-bg)" stroke="var(--bs-emphasis-color)" stroke-width="2" />
+                    <text v-if="m.label" class="chart-tick num chart-mark-label" :x="m.x" :y="m.y - 9" text-anchor="middle">{{ m.label }}</text>
+                  </g>
+                  <template v-if="hover">
+                    <line class="chart-cross" :x1="hover.x" :x2="hover.x" :y1="CH.t" :y2="CH.h - CH.b" />
+                    <circle v-for="p in hover.points" :key="p.key" :cx="hover.x" :cy="p.y" r="4" :fill="p.color" stroke="var(--bs-body-bg)" stroke-width="2" />
+                  </template>
+                  <rect :x="CH.l" :y="CH.t" :width="CH.w - CH.l - CH.r" :height="CH.h - CH.t - CH.b" fill="transparent"
+                    :style="{ cursor: dragging ? 'grabbing' : 'grab' }"
+                    @mousemove="onChartMove" @mouseleave="onChartLeave" @mousedown.prevent="onChartDown" @mouseup="dragging = null"
+                    @wheel.prevent="onChartWheel" @dblclick="resetZoom" />
+                </svg>
+                <div class="card shadow-sm chart-tip" v-if="hover" :style="hover.tipStyle">
+                  <div class="card-body p-2 small">
+                    <div class="fw-semibold mb-1">n = {{ fmtVal(hover.n) }}</div>
+                    <div class="d-flex gap-3"><span>T(n)</span><span class="ms-auto num">{{ fmtVal(hover.t) }}</span></div>
+                    <div class="d-flex gap-3"><span>c·g(n)</span><span class="ms-auto num">{{ fmtVal(hover.cg) }}</span></div>
+                    <div class="mt-1" :class="hover.ok ? 'text-success' : 'text-danger'">
+                      {{ hover.ok ? '✓ T(n) ≤ c·g(n)' : '✗ T(n) > c·g(n)' }}{{ hover.n < n0 ? ' (antes de n₀: no importa)' : '' }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p class="small text-muted mt-2 mb-0">
+                <template v-if="view === 'ratio'">La cota vale donde la curva T(n)/g(n) queda por debajo de la recta c desde n₀. Por eso c tiene que ser al menos lo que valga el cociente a la larga.</template>
+                <template v-else>Desde n₀ (zona verde), c·g(n) tiene que quedar por encima de T(n). En rojo, los tramos donde no pasa.</template>
+                Rueda del mouse: zoom · arrastrar: mover · doble clic o ⤢: volver a ver desde 0.
+              </p>
+              <div class="small mt-2" v-if="chart.marks && chart.marks.length">
+                <span class="text-muted">Cruces en lo que se ve:</span>
+                <ul class="mb-0 ps-3">
+                  <li v-for="m in chart.marks.slice(0, 6)" :key="`li${m.key}`">
+                    n ≈ {{ fmtVal(m.n) }}: desde ahí {{ m.upperWins ? (view === 'ratio' ? 'T(n)/g(n) queda por debajo de c' : 'c·g(n) queda por encima de T(n)') : (view === 'ratio' ? 'T(n)/g(n) queda por encima de c' : 'T(n) queda por encima de c·g(n)') }}.
+                  </li>
+                </ul>
+                <span class="text-muted" v-if="chart.marks.length > 6">…y {{ chart.marks.length - 6 }} más (hacé zoom para verlos).</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Demostración -->
+          <div class="card">
+            <div class="card-header fw-semibold">🧾 Demostración</div>
+            <div class="card-body p-2 overflow-auto">
+              <table class="table table-sm table-bordered align-middle mb-1 small text-end" style="width: auto; min-width: 60%;">
+                <thead>
+                  <tr>
+                    <th class="dp-header-cell text-center">c</th>
+                    <th class="dp-header-cell text-center">n</th>
+                    <th class="dp-header-cell text-center"><span id="tex-th-T"></span></th>
+                    <th class="dp-header-cell text-center"><span id="tex-th-cg"></span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, k) in proofRows" :key="row.n">
+                    <td class="cell-off num">{{ k === 0 ? fmtVal(c) : '' }}</td>
+                    <td class="cell-off num">{{ fmtVal(row.n) }}</td>
+                    <td class="num" :class="row.ok ? 'cell-ok' : 'cell-bad'">{{ fmtVal(row.t) }}</td>
+                    <td class="num" :class="row.ok ? 'cell-ok' : 'cell-bad'">{{ fmtVal(row.cg) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="small text-muted mb-0">Verde: T(n) ≤ c·g(n). Rojo: no se cumple. Solo importan las filas con n ≥ n₀ = {{ n0 }}.</p>
+            </div>
+          </div>
+
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, nextTick, watch, onBeforeUnmount } = Vue;
+
+// ln Γ(x) por la aproximación de Lanczos (g = 7), para n! = Γ(n + 1) con n real.
+const LANCZOS = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+  -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+function lnGamma(x) {
+  if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - lnGamma(1 - x);
+  x -= 1;
+  let a = LANCZOS[0];
+  const t = x + 7.5;
+  for (let i = 1; i < 9; i++) a += LANCZOS[i] / (x + i);
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+
+// ── Parser de expresiones (descenso recursivo, sin eval: las expresiones viajan en el link de Compartir).
+// Mismo que complejidad/comparador.html, más sin/cos/abs.
+// expr := term (('+'|'-') term)* · term := unary (('*'|'/'|implícito) unary)* · unary := '-' unary | power
+// power := postfix ('^' unary)? · postfix := primary '!'* · primary := número | n | func (primary) | '(' expr ')'
+const FUNCS = {
+  log: { f: Math.log2, tex: a => `\\log ${a}` }, log2: { f: Math.log2, tex: a => `\\log ${a}` },
+  ln: { f: Math.log, tex: a => `\\ln ${a}` }, sqrt: { f: Math.sqrt, tex: a => `\\sqrt{${a}}` },
+  sin: { f: Math.sin, tex: a => `\\sin ${a}` }, cos: { f: Math.cos, tex: a => `\\cos ${a}` },
+  abs: { f: Math.abs, tex: a => `\\left|${a}\\right|` },
+};
+function parseExpr(src) {
+  const tokens = src.replace(/·/g, '*').replace(/√/g, 'sqrt').match(/\d+(\.\d+)?|[a-z]+|[-+*/^()!]|\S/gi) || [];
+  let pos = 0;
+  const peek = () => tokens[pos], next = () => tokens[pos++];
+  const fail = msg => { throw new Error(msg); };
+  const startsPrimary = t => t !== undefined && (/^[\d(]/.test(t) || /^[a-z]+$/i.test(t));
+
+  function expr() {
+    let node = term();
+    while (peek() === '+' || peek() === '-') { const op = next(); node = { op, a: node, b: term() }; }
+    return node;
+  }
+  function term() {
+    let node = unary();
+    while (peek() === '*' || peek() === '/' || startsPrimary(peek())) {
+      const implicit = !(peek() === '*' || peek() === '/');
+      const op = implicit ? '*' : next();
+      node = { op, a: node, b: unary(), implicit };
+    }
+    return node;
+  }
+  function unary() { return peek() === '-' ? (next(), { op: 'neg', a: unary() }) : power(); }
+  function power() {
+    const base = postfix();
+    return peek() === '^' ? (next(), { op: '^', a: base, b: unary() }) : base;
+  }
+  function postfix() {
+    let node = primary();
+    while (peek() === '!') { next(); node = { op: '!', a: node }; }
+    return node;
+  }
+  function primary() {
+    const t = next();
+    if (t === undefined) fail('La expresión termina antes de tiempo.');
+    if (/^\d/.test(t)) return { num: Number(t) };
+    if (t === 'n' || t === 'N') return { n: true };
+    if (t === '(') { const e = expr(); if (next() !== ')') fail('Falta cerrar un paréntesis.'); return { paren: e }; }
+    const fn = FUNCS[t.toLowerCase()];
+    if (fn) return { fn: t.toLowerCase(), a: postfix() };
+    fail(`No se entiende "${t}".`);
+  }
+
+  if (!tokens.length) fail('Escribí una expresión en función de n.');
+  const tree = expr();
+  if (pos < tokens.length) fail(`Sobra "${tokens[pos]}".`);
+  return tree;
+}
+function evalNode(node, n) {
+  if ('num' in node) return node.num;
+  if (node.n) return n;
+  if (node.paren) return evalNode(node.paren, n);
+  if (node.fn) return FUNCS[node.fn].f(evalNode(node.a, n));
+  const a = evalNode(node.a, n);
+  switch (node.op) {
+    case 'neg': return -a;
+    case '!': return a < 0 ? NaN : Math.exp(lnGamma(a + 1));
+    case '+': return a + evalNode(node.b, n);
+    case '-': return a - evalNode(node.b, n);
+    case '*': return a * evalNode(node.b, n);
+    case '/': return a / evalNode(node.b, n);
+    case '^': return a ** evalNode(node.b, n);
+  }
+}
+function texNode(node) {
+  if ('num' in node) return String(node.num).replace('.', '{,}');
+  if (node.n) return 'n';
+  if (node.paren) return `\\left(${texNode(node.paren)}\\right)`;
+  if (node.fn) return FUNCS[node.fn].tex(texNode(node.a.paren ?? node.a));
+  const a = texNode(node.a);
+  switch (node.op) {
+    case 'neg': return `-${a}`;
+    case '!': return `${a}!`;
+    case '+': case '-': return `${a} ${node.op} ${texNode(node.b)}`;
+    case '*': return node.implicit ? `${a}\\,${texNode(node.b)}` : `${a} \\cdot ${texNode(node.b)}`;
+    case '/': return `\\frac{${texNode(node.a.paren ?? node.a)}}{${texNode(node.b.paren ?? node.b)}}`;
+    case '^': return `{${a}}^{${texNode(node.b.paren ?? node.b)}}`;
+  }
+}
+function compile(src) {
+  const tree = parseExpr(src);
+  return { f: n => evalNode(tree, n), tex: texNode(tree), tree };
+}
+
+// ── Polinomios: el árbol expandido como { exponente: coeficiente }, o null si no es un polinomio en n
+// (con exponentes enteros ≥ 0; se admite dividir por una constante) ──
+function polyAdd(p, q, sign = 1) {
+  const r = { ...p };
+  for (const [e, c] of Object.entries(q)) r[e] = (r[e] || 0) + sign * c;
+  for (const e of Object.keys(r)) if (Math.abs(r[e]) < 1e-12) delete r[e];
+  return r;
+}
+function polyMul(p, q) {
+  let r = {};
+  for (const [e1, c1] of Object.entries(p)) for (const [e2, c2] of Object.entries(q)) r = polyAdd(r, { [+e1 + +e2]: c1 * c2 });
+  return r;
+}
+const polyDeg = p => Math.max(-Infinity, ...Object.keys(p).map(Number));
+function polyOf(node) {
+  if ('num' in node) return node.num ? { 0: node.num } : {};
+  if (node.n) return { 1: 1 };
+  if (node.paren) return polyOf(node.paren);
+  if (node.fn) return null;
+  const a = polyOf(node.a);
+  if (!a) return null;
+  if (node.op === 'neg') return polyAdd({}, a, -1);
+  if (node.op === '!') return null;
+  const b = polyOf(node.b);
+  if (!b) return null;
+  switch (node.op) {
+    case '+': return polyAdd(a, b);
+    case '-': return polyAdd(a, b, -1);
+    case '*': return polyMul(a, b);
+    case '/': return polyDeg(b) === 0 ? polyMul(a, { 0: 1 / b[0] }) : null;
+    case '^': {
+      const k = polyDeg(b) <= 0 ? (b[0] || 0) : NaN;
+      if (!Number.isInteger(k) || k < 0 || k > 20) return null;
+      let r = { 0: 1 };
+      for (let i = 0; i < k; i++) r = polyMul(r, a);
+      return r;
+    }
+  }
+  return null;
+}
+const texCoef = c => fmtVal(c).replace(/\./g, '\\,').replace(/,/g, '{,}');
+const texPowN = e => e === 0 ? '' : e === 1 ? 'n' : `n^{${e}}`;
+// Un término c·nᵉ en LaTeX, con el coeficiente 1 implícito.
+function texTerm(c, e) {
+  if (e === 0) return texCoef(c);
+  return `${c === 1 ? '' : c === -1 ? '-' : texCoef(c)}${texPowN(e)}`;
+}
+// Suma de términos [c, e] en LaTeX, con los signos bien puestos.
+function texSum(terms) {
+  if (!terms.length) return '0';
+  return terms.map(([c, e], i) => {
+    const t = texTerm(Math.abs(c), e);
+    return i === 0 ? (c < 0 ? `-${t}` : t) : `${c < 0 ? '-' : '+'} ${t}`;
+  }).join(' ');
+}
+const polyTerms = p => Object.entries(p).map(([e, c]) => [c, +e]).sort((x, y) => y[1] - x[1]);
+
+const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+const sup = e => String(e).split('').map(ch => SUP[ch]).join('');
+// Número para mostrar: coma decimal; desde 10⁷ como m × 10ᵉ (como el 4E6 de la diapositiva).
+function fmtVal(v) {
+  if (Number.isNaN(v)) return 'no definida';
+  if (!Number.isFinite(v)) return v > 0 ? '∞' : '−∞';
+  if (Math.abs(v) >= 1e7) {
+    const e = Math.floor(Math.log10(Math.abs(v))), m = v / 10 ** e;
+    return `${m.toLocaleString('es', { maximumFractionDigits: 2 })} × 10${sup(e)}`;
+  }
+  return v.toLocaleString('es', { maximumFractionDigits: 3 });
+}
+const texNum = v => fmtVal(v).replace(/\./g, '\\,').replace(/,/g, '{,}');
+
+// ── Verificación numérica de T(n) ≤ c·g(n): todos los enteros de n₀ a n₀ + 10.000 y después una muestra
+// geométrica hasta 10¹⁵. Si algún valor deja de entrar en un double, se verifica hasta ahí ──
+const EXHAUSTIVE = 10000, MAX_N = 1e15, GEO_SAMPLES = 400;
+function sampleNs(from) {
+  const ns = [];
+  for (let n = from; n <= from + EXHAUSTIVE; n++) ns.push(n);
+  const start = from + EXHAUSTIVE + 1;
+  for (let k = 1; k <= GEO_SAMPLES && start < MAX_N; k++) ns.push(Math.round(start * (MAX_N / start) ** (k / GEO_SAMPLES)));
+  return ns;
+}
+const holds = (t, g, c) => t <= c * g + 1e-9 * Math.max(1, Math.abs(c * g));
+// Recorre las muestras hasta que un valor desborda; `visit(n, t, g)` devuelve true para cortar antes.
+function scan(T, g, from, visit) {
+  let last = from;
+  for (const n of sampleNs(from)) {
+    const t = T(n), gv = g(n);
+    if (Math.abs(t) === Infinity || Math.abs(gv) === Infinity) return { last, overflowAt: n };
+    last = n;
+    if (visit(n, t, gv)) break;
+  }
+  return { last, overflowAt: null };
+}
+// ¿T(n)/g(n) crece sin cota? Pendiente de log(T/g) contra log(n) en las últimas tres décadas verificables
+// (> 0,015 atrapa hasta log n / 1). Solo tiene sentido si se llegó lejos.
+function ratioGrows(T, g, top) {
+  const lo = Math.max(1, top / 1000);
+  if (top / lo < 5) return false;
+  const r = n => T(n) / g(n);
+  const rTop = r(top), rLo = r(lo);
+  if (g(top) <= 0 && T(top) > 0) return true;
+  if (!(rTop > 0) || !(rLo > 0)) return false;
+  return (Math.log(rTop) - Math.log(rLo)) / (Math.log(top) - Math.log(lo)) > 0.015;
+}
+function analyze(T, g, c, n0) {
+  let firstFail = null;
+  const { last, overflowAt } = scan(T, g, n0, (n, t, gv) => {
+    if (!firstFail && (Number.isNaN(t) || Number.isNaN(gv) || !holds(t, gv, c))) firstFail = { n, t, cg: c * gv };
+    return false;
+  });
+  return { firstFail, last, overflowAt, unbounded: ratioGrows(T, g, last) };
+}
+// c mínima para un n₀: el supremo de T(n)/g(n) con n ≥ n₀ (∞ si no está acotado o hay un punto sin definir).
+function minC(T, g, n0) {
+  let sup = 0;
+  const { last } = scan(T, g, n0, (n, t, gv) => {
+    if (Number.isNaN(t) || Number.isNaN(gv)) { sup = Infinity; return true; }
+    if (gv > 0) sup = Math.max(sup, t / gv);
+    else if (t > 0) { sup = Infinity; return true; }
+    return false;
+  });
+  if (ratioGrows(T, g, last)) return Infinity;
+  return sup === 0 ? 0 : Math.ceil(sup * 100 - 1e-9) / 100;  // redondeada hacia arriba a centésimos
+}
+// n₀ mínimo para una c: uno más que el último n donde falla (null si falla hasta el final o el cociente no está acotado).
+function minN0(T, g, c) {
+  const ns = [];
+  let lastFail = -1;
+  const { last } = scan(T, g, 0, (n, t, gv) => {
+    ns.push(n);
+    if (Number.isNaN(t) || Number.isNaN(gv) || !holds(t, gv, c)) lastFail = ns.length - 1;
+    return false;
+  });
+  if (lastFail === -1) return 0;
+  if (lastFail === ns.length - 1 || ratioGrows(T, g, last)) return null;
+  let lo = ns[lastFail], hi = ns[lastFail + 1];   // lo falla, hi cumple: bisección entera en el medio
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2), t = T(mid), gv = g(mid);
+    if (Number.isNaN(t) || Number.isNaN(gv) || !holds(t, gv, c)) lo = mid; else hi = mid;
+  }
+  return hi;
+}
+
+const EXAMPLES = [
+  { name: '(n+1)² ∈ O(n²), el de la diapositiva', t: '(n+1)^2', g: 'n^2', c: 4, n0: 1, nMax: 10 },
+  { name: '3n² + 5n + 2 ∈ O(n²)', t: '3n^2 + 5n + 2', g: 'n^2', c: 10, n0: 1, nMax: 10 },
+  { name: '100n ∈ O(n²): con c = 1, n₀ = 100', t: '100n', g: 'n^2', c: 1, n0: 100, nMax: 200 },
+  { name: 'n log n ∈ O(n²)', t: 'n log n', g: 'n^2', c: 1, n0: 1, nMax: 20 },
+  { name: 'n + 10·sin(n) ∈ O(n), una T que oscila', t: 'n + 10 sin(n)', g: 'n', c: 2, n0: 10, nMax: 40 },
+  { name: '2ⁿ⁺¹ ∈ O(2ⁿ)', t: '2^(n+1)', g: '2^n', c: 2, n0: 0, nMax: 10 },
+  { name: 'n² ∉ O(n): ninguna c alcanza', t: 'n^2', g: 'n', c: 10, n0: 1, nMax: 30 },
+];
+
+const SAMPLES = 300;
+function niceStep(range, count) {
+  const raw = range / count, mag = 10 ** Math.floor(Math.log10(raw)), f = raw / mag;
+  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag;
+}
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-complejidad-big-o';
+    const DEFAULTS = { tExpr: '(n+1)^2', gExpr: 'n^2', c: 4, n0: 1, nMin: 0, nMax: 10, view: 'funcs', yLog: false };
+
+    const tExpr = ref(DEFAULTS.tExpr);
+    const gExpr = ref(DEFAULTS.gExpr);
+    const c = ref(DEFAULTS.c);
+    const n0 = ref(DEFAULTS.n0);
+    const nMin = ref(DEFAULTS.nMin);   // ventana de n que se grafica (zoom)
+    const nMax = ref(DEFAULTS.nMax);
+    const view = ref(DEFAULTS.view);
+    const yLog = ref(DEFAULTS.yLog);
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+
+    const compiled = computed(() => {
+      const out = {};
+      for (const [key, src] of [['T', tExpr.value], ['g', gExpr.value]]) {
+        try { out[key] = compile(src); } catch (e) { out[key + 'Error'] = e.message; }
+      }
+      return out;
+    });
+    const tError = computed(() => compiled.value.TError || '');
+    const gError = computed(() => compiled.value.gError || '');
+    const constError = computed(() => {
+      if (!(c.value > 0)) return 'c tiene que ser un número positivo.';
+      if (!(Number.isInteger(n0.value) && n0.value >= 0)) return 'n₀ tiene que ser un entero ≥ 0.';
+      if (!(nMin.value >= 0 && nMax.value > nMin.value)) return 'El rango de n del gráfico tiene que empezar en 0 o más y terminar después.';
+      return '';
+    });
+    const ready = computed(() => !tError.value && !gError.value && !constError.value);
+    const T = n => compiled.value.T.f(n);
+    const g = n => compiled.value.g.f(n);
+
+    // Slider de c en escala logarítmica (0,1 a 1000), redondeado a 3 cifras.
+    const cLog = computed({
+      get: () => Math.log10(c.value > 0 ? c.value : 1),
+      set: v => { c.value = Number((10 ** v).toPrecision(3)); },
+    });
+
+    const analysis = computed(() => ready.value ? analyze(T, g, c.value, n0.value) : null);
+    const minCValue = computed(() => ready.value ? minC(T, g, n0.value) : NaN);
+    const minN0Value = computed(() => ready.value ? minN0(T, g, c.value) : null);
+    function useMinC() { if (Number.isFinite(minCValue.value)) c.value = minCValue.value; }
+    function useMinN0() { if (minN0Value.value !== null) n0.value = minN0Value.value; }
+
+    // ── Demostración algebraica (T polinomio, g = a·nᵏ): para n ≥ 1, cada término positivo cᵢ·nⁱ ≤ cᵢ·nᵏ
+    // y los negativos se descartan, así T(n) ≤ C·nᵏ = (C/a)·g(n) con n₀ = 1 ──
+    const proof = computed(() => {
+      if (!ready.value) return {};
+      const pT = polyOf(compiled.value.T.tree), pG = polyOf(compiled.value.g.tree);
+      const gTerms = pG && polyTerms(pG);
+      if (!pT || !gTerms || gTerms.length !== 1 || gTerms[0][0] <= 0) {
+        return { ok: false, text: 'La demostración paso a paso se arma cuando T(n) es un polinomio (por ejemplo 3n² + 5n + 2 o (n+1)²) y g(n) es a·nᵏ (por ejemplo n²). Para el resto, usá la verificación numérica, el gráfico y el límite.' };
+      }
+      const [a, k] = gTerms[0];
+      const terms = polyTerms(pT);
+      const d = terms.length ? terms[0][1] : 0;
+      if (d > k && terms[0][0] > 0) {
+        return { ok: false, bad: true, text: `T(n) tiene grado ${d} y g(n) grado ${k}: el término ${terms[0][0] === 1 ? '' : fmtVal(terms[0][0])}n${sup(d)} termina superando a c·n${k === 1 ? '' : sup(k)} para cualquier c, así que T(n) ∉ O(g(n)).` };
+      }
+      const pos = terms.filter(([c]) => c > 0), neg = terms.filter(([c]) => c < 0);
+      const C = pos.reduce((acc, [c]) => acc + c, 0);
+      const cFinal = C > 0 ? Number((C / a).toPrecision(6)) : 1;
+      const gTex = compiled.value.g.tex;
+      const lines = [`T(n) &= ${compiled.value.T.tex}`];
+      const expanded = texSum(terms);
+      const norm = t => t.replace(/\\,|\\cdot|\\left|\\right|\s|[{}]/g, '');
+      if (norm(expanded) !== norm(compiled.value.T.tex)) lines.push(`&= ${expanded} && \\text{(desarrollando)}`);
+      if (neg.length) lines.push(`&\\le ${texSum(pos)} && \\text{(sin los negativos)}`);
+      if (pos.some(([, e]) => e < k)) lines.push(`&\\le ${texSum(pos.map(([c]) => [c, k]))} && (n \\ge 1 \\Rightarrow n^i \\le ${texPowN(k) || '1'})`);
+      lines.push(`&= ${texTerm(C, k) || '0'}${a !== 1 ? ` = ${texCoef(cFinal)} \\cdot ${gTex}` : ''}`);
+      return {
+        ok: true, c: cFinal, n0: 1,
+        tex: `\\begin{aligned} ${lines.join(' \\\\ ')} \\end{aligned}`,
+        text: C > 0
+          ? `Entonces T(n) ≤ ${fmtVal(cFinal)}·g(n) para todo n ≥ 1: sirven c = ${fmtVal(cFinal)} y n₀ = 1. No es la única elección (con n₀ más grande alcanza una c más chica), pero es la que sale directo acotando término a término.`
+          : 'T(n) nunca es positiva, así que T(n) ≤ c·g(n) vale con cualquier c > 0 desde n₀ = 1.',
+      };
+    });
+    function useProof() { c.value = proof.value.c; n0.value = proof.value.n0; }
+
+    // ── Límite de T(n)/g(n): exacto si los dos son polinomios (con g = a·nᵏ); si no, estimado con n grande ──
+    const limitInfo = computed(() => {
+      if (!ready.value) return {};
+      const pT = polyOf(compiled.value.T.tree), pG = polyOf(compiled.value.g.tree);
+      let kind, L, exact = false;
+      if (pT && pG && Object.keys(pG).length) {
+        const tT = polyTerms(pT), tG = polyTerms(pG);
+        const dT = tT.length ? tT[0][1] : -Infinity, dG = tG[0][1];
+        exact = true;
+        if (dT > dG) kind = tT[0][0] > 0 ? 'inf' : 'zero';
+        else if (dT < dG) kind = 'zero';
+        else { L = tT[0][0] / tG[0][0]; kind = L > 0 ? 'finite' : 'zero'; }
+      } else {
+        const top = analysis.value.last;
+        if (ratioGrows(T, g, top)) kind = 'inf';
+        else {
+          const r = n => T(n) / g(n);
+          const lo = Math.max(1, top / 1000);
+          const slope = (Math.log(Math.abs(r(top))) - Math.log(Math.abs(r(lo)))) / (Math.log(top) - Math.log(lo));
+          // Promedio de varios n cerca del final: suaviza oscilaciones como las de sin(n).
+          const avg = [1, 0.97, 0.93, 0.89, 0.83].map(f => r(top * f)).reduce((x, y) => x + y, 0) / 5;
+          if (top / lo >= 5 && slope < -0.015) kind = 'zero';
+          else { L = Number(avg.toPrecision(3)); kind = Math.abs(L) < 1e-9 ? 'zero' : 'finite'; }
+        }
+      }
+      const texL = kind === 'inf' ? '\\infty' : kind === 'zero' ? '0' : texCoef(Number(L.toPrecision(4)));
+      const tex = `\\lim_{n \\to \\infty} \\frac{T(n)}{g(n)} ${exact ? '=' : '\\approx'} ${texL}`;
+      if (kind === 'inf') return { tex, exact, cls: 'bg-danger', title: 'Tiende a ∞: T(n) ∉ O(g(n))',
+        text: 'T(n) crece más rápido que g(n): para cualquier c, a la larga T(n) supera a c·g(n). Hay que probar con una g(n) más grande.' };
+      if (kind === 'zero') return { tex, exact, cls: 'bg-warning text-dark', title: 'Tiende a 0: cota válida pero holgada',
+        text: 'T(n) crece más lento que g(n): T(n) ∈ O(g(n)) es cierto, pero g no es la mejor cota (como decir que n ∈ O(n²)). Hay una g más ajustada.' };
+      return { tex, exact, cls: 'bg-success', title: `Tiende a ${fmtVal(Number(L.toPrecision(4)))}: mismo orden, cota ajustada`,
+        text: `T(n) y g(n) crecen igual salvo constantes (T ∈ Θ(g)). Cualquier c > ${fmtVal(Number(L.toPrecision(4)))} sirve a partir de algún n₀ (con n₀ más grande, la c necesaria se acerca a ${fmtVal(Number(L.toPrecision(4)))}); una c menor no alcanza nunca.` };
+    });
+
+    const verdict = computed(() => {
+      const a = analysis.value;
+      if (!a) return {};
+      const reach = a.overflowAt
+        ? `Verificado numéricamente de n = ${n0.value} a n = ${fmtVal(a.last)} (más allá los valores no entran en un número de punto flotante).`
+        : `Verificado numéricamente: todos los enteros de n = ${n0.value} a ${fmtVal(n0.value + EXHAUSTIVE)} y una muestra hasta n = 10¹⁵. Es una comprobación, no una demostración.`;
+      if (a.unbounded) {
+        return { icon: '⚠️', cls: 'bg-warning text-dark', border: 'border-warning', note: reach,
+          text: `T(n)/g(n) crece sin cota: ninguna c alcanza, así que T(n) ∉ O(g(n)). Probá con una g(n) que crezca más rápido.` };
+      }
+      if (a.firstFail) {
+        const f = a.firstFail;
+        const why = Number.isNaN(f.t) || Number.isNaN(f.cg) ? 'la función no está definida ahí' : `T(${fmtVal(f.n)}) = ${fmtVal(f.t)} > c·g(${fmtVal(f.n)}) = ${fmtVal(f.cg)}`;
+        return { icon: '❌', cls: 'bg-danger', border: 'border-danger', note: reach,
+          text: `Con c = ${fmtVal(c.value)} y n₀ = ${n0.value} no alcanza: falla en n = ${fmtVal(f.n)}, porque ${why}. Subí c o n₀.` };
+      }
+      return { icon: '✅', cls: 'bg-success', border: 'border-success', note: reach,
+        text: `T(n) ≤ ${fmtVal(c.value)}·g(n) para todo n ≥ ${n0.value}: T(n) ∈ O(g(n)) con c = ${fmtVal(c.value)} y n₀ = ${n0.value}.` };
+    });
+
+    // ── Tabla de demostración: n de 0 a n₀ + 2 (o los vecinos de n₀) y después potencias de 10 ──
+    const proofRows = computed(() => {
+      if (!ready.value) return [];
+      const k = n0.value;
+      const set = new Set(k <= 6 ? Array.from({ length: k + 3 }, (_, i) => i) : [0, 1, 2, k - 1, k, k + 1]);
+      for (const p of [10, 100, 1000, 1e6]) set.add(p);
+      return [...set].filter(n => n >= 0).sort((a, b) => a - b).map(n => {
+        const t = T(n), cg = c.value * g(n);
+        return { n, t, cg, ok: !Number.isNaN(t) && !Number.isNaN(cg) && holds(t, cg / c.value, c.value) };
+      });
+    });
+
+    // ── Gráfico (en píxeles al ancho de la card, sin viewBox: en un template dentro del HTML
+    // el navegador pasa los atributos a minúscula) ──
+    const CH = reactive({ w: 820, h: 340, l: 64, r: 90, t: 12, b: 34 });
+    const hover = ref(null);
+    const chartWrapEl = ref(null);
+    const chartResize = new ResizeObserver(([entry]) => { CH.w = Math.max(320, Math.floor(entry.contentRect.width)); });
+    watch(chartWrapEl, el => { chartResize.disconnect(); if (el) chartResize.observe(el); });
+    onBeforeUnmount(() => chartResize.disconnect());
+
+    // En la vista de cociente, "arriba" es la recta c y "abajo" T/g; en la de funciones, c·g y T.
+    function pairAt(n) {
+      const t = T(n), gv = g(n);
+      return view.value === 'ratio' ? { lower: t / gv, upper: c.value } : { lower: t, upper: c.value * gv };
+    }
+    // Cruces entre las dos curvas en la ventana: cambios de signo de (arriba − abajo) en las muestras,
+    // afinados por bisección. Como en complejidad/comparador.html: punto + "n≈…" (si no se pisa con el anterior).
+    function crossingMarks(pts, xOf, yOf) {
+      const diff = n => { const p = pairAt(n); return p.upper - p.lower; };
+      const marks = [];
+      let prev = null, lastLabelX = -Infinity;
+      for (const p of pts) {
+        const d = p.upper - p.lower;
+        if (!Number.isFinite(d) || d === 0) continue;
+        if (prev && Math.sign(prev.d) !== Math.sign(d)) {
+          let lo = prev.n, hi = p.n;
+          for (let it = 0; it < 50; it++) { const m = (lo + hi) / 2, dm = diff(m); if (Number.isFinite(dm) && Math.sign(dm) === Math.sign(prev.d)) lo = m; else hi = m; }
+          const n = Number(((lo + hi) / 2).toPrecision(4));
+          const x = xOf(n), showLabel = x - lastLabelX > 44;
+          if (showLabel) lastLabelX = x;
+          marks.push({ key: `${n}-${marks.length}`, n, x, y: yOf(pairAt(n).lower), label: showLabel ? `n≈${fmtVal(n)}` : '', upperWins: d > 0 });
+        }
+        prev = { n: p.n, d };
+      }
+      return marks.filter(m => Number.isFinite(m.y));
+    }
+    const chart = computed(() => {
+      if (!ready.value) return {};
+      const nLo = nMin.value, nHi = nMax.value;
+      const xOf = n => CH.l + (n - nLo) / (nHi - nLo) * (CH.w - CH.l - CH.r);
+      const ns = Array.from({ length: SAMPLES + 1 }, (_, k) => nLo + (nHi - nLo) * k / SAMPLES);
+      const pts = ns.map(n => ({ n, ...pairAt(n) }));
+      const vals = pts.flatMap(p => [p.lower, p.upper]).filter(Number.isFinite);
+      const plotH = CH.h - CH.t - CH.b, baseY = CH.h - CH.b;
+      let yOf, yTicks = [];
+      if (yLog.value) {
+        const pos = vals.filter(v => v > 0);
+        const lo = Math.floor(Math.log10(Math.min(...pos, 1))), hi = Math.max(lo + 1, Math.ceil(Math.log10(Math.max(...pos, 10))));
+        yOf = v => v > 0 ? baseY - (Math.min(Math.max(Math.log10(v), lo), hi) - lo) / (hi - lo) * plotH : NaN;
+        const step = Math.max(1, Math.ceil((hi - lo) / 7));
+        for (let e = lo; e <= hi; e += step) yTicks.push({ y: yOf(10 ** e), label: e >= 0 && e < 4 ? String(10 ** e) : `10${sup(e)}` });
+      } else {
+        const lo = Math.min(0, ...vals), hi = Math.max(...vals, lo + 1);
+        yOf = v => baseY - (v - lo) / (hi - lo) * plotH;
+        const step = niceStep(hi - lo, 6);
+        for (let v = Math.ceil(lo / step) * step; v <= hi * 1.0001; v += step) yTicks.push({ y: yOf(v), label: fmtVal(Number(v.toPrecision(12))) });
+      }
+      const path = key => {
+        let d = '', open = false;
+        for (const p of pts) {
+          const y = yOf(p[key]);
+          if (!Number.isFinite(y)) { open = false; continue; }
+          d += `${open ? 'L' : 'M'}${xOf(p.n).toFixed(1)},${y.toFixed(1)}`;
+          open = true;
+        }
+        return d;
+      };
+      // Tramos donde falla (solo importan desde n₀): se remarcan sobre T.
+      let bad = '', open = false;
+      for (const p of pts) {
+        const failing = p.n >= n0.value && Number.isFinite(p.lower) && Number.isFinite(p.upper) && p.lower > p.upper + 1e-9 * Math.abs(p.upper);
+        const y = yOf(p.lower);
+        if (failing && Number.isFinite(y)) { bad += `${open ? 'L' : 'M'}${xOf(p.n).toFixed(1)},${y.toFixed(1)}`; open = true; } else open = false;
+      }
+      const xStep = niceStep(nHi - nLo, 8);
+      const xTicks = [];
+      for (let v = Math.ceil(nLo / xStep) * xStep; v <= nHi + 1e-9; v += xStep) xTicks.push({ x: xOf(v), label: fmtVal(Number(v.toPrecision(12))) });
+      // Rótulos al final de cada curva, separados si quedarían pegados.
+      const last = pts[pts.length - 1];
+      let upperLabelY = yOf(last.upper), lowerLabelY = yOf(last.lower);
+      if (!Number.isFinite(upperLabelY)) upperLabelY = CH.t + 10;
+      if (!Number.isFinite(lowerLabelY)) lowerLabelY = baseY - 10;
+      if (Math.abs(upperLabelY - lowerLabelY) < 14) {
+        const mid = (upperLabelY + lowerLabelY) / 2;
+        upperLabelY = mid - 7; lowerLabelY = mid + 7;
+      }
+      return {
+        xOf, yOf, nLo, nHi, yTicks, xTicks, bad, n0Visible: n0.value >= nLo && n0.value <= nHi, marks: crossingMarks(pts, xOf, yOf),
+        upper: path('upper'), lower: path('lower'), upperLabelY, lowerLabelY,
+        zoneX: xOf(Math.min(Math.max(n0.value, nLo), nHi)),
+      };
+    });
+
+    // ── Zoom (rueda, centrado en el cursor) y paneo (arrastrar) sobre el eje n; el eje y se reajusta solo ──
+    const dragging = ref(null);
+    const plotW = () => CH.w - CH.l - CH.r;
+    const svgX = e => new DOMPoint(e.clientX, e.clientY).matrixTransform(e.currentTarget.ownerSVGElement.getScreenCTM().inverse()).x;
+    const tidy = v => Number(v.toPrecision(4));   // 4 cifras: entran en los campos del rango
+    function setWindow(lo, hi) {
+      const span = hi - lo;
+      if (lo < 0) { lo = 0; hi = span; }
+      nMin.value = tidy(lo);
+      nMax.value = tidy(hi);
+    }
+    function onChartWheel(e) {
+      const lo = nMin.value, hi = nMax.value;
+      const at = lo + (svgX(e) - CH.l) / plotW() * (hi - lo);
+      const f = e.deltaY < 0 ? 0.8 : 1.25;
+      if (f < 1 && hi - lo < 0.05) return;   // tope de acercamiento
+      setWindow(at - (at - lo) * f, at + (hi - at) * f);
+      hover.value = null;
+    }
+    function onChartDown(e) { dragging.value = { x: svgX(e), lo: nMin.value, hi: nMax.value }; hover.value = null; }
+    function onChartLeave() { dragging.value = null; hover.value = null; }
+    function resetZoom() { setWindow(0, Math.max(10, 2 * n0.value)); }
+
+    function onChartMove(e) {
+      if (dragging.value) {
+        const d = dragging.value, shift = -(svgX(e) - d.x) / plotW() * (d.hi - d.lo);
+        setWindow(d.lo + shift, d.hi + shift);
+        return;
+      }
+      const svg = e.currentTarget.ownerSVGElement;
+      const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+      const ch = chart.value;
+      const raw = ch.nLo + (pt.x - CH.l) / plotW() * (ch.nHi - ch.nLo);
+      // Con la ventana amplia se muestra el n entero más cercano; con mucho zoom, décimas.
+      const n = Math.min(ch.nHi, Math.max(ch.nLo, ch.nHi - ch.nLo >= 10 ? Math.round(raw) : Math.round(raw * 10) / 10));
+      const x = ch.xOf(n);
+      const t = T(n), cg = c.value * g(n);
+      const pair = pairAt(n);
+      const points = [
+        { key: 'u', y: ch.yOf(pair.upper), color: 'var(--bs-danger)' },
+        { key: 'l', y: ch.yOf(pair.lower), color: 'var(--bs-body-color)' },
+      ].filter(p => Number.isFinite(p.y));
+      const tipStyle = x > CH.w / 2 ? { right: `${CH.w - x + 12}px` } : { left: `${x + 12}px` };
+      hover.value = { n, x, t, cg, ok: !Number.isNaN(t) && !Number.isNaN(cg) && holds(t, cg / c.value, c.value), points, tipStyle };
+    }
+
+    // ── KaTeX (render manual) ──
+    function renderMath() {
+      const opts = { throwOnError: false };
+      const put = (id, src, display = false) => { const el = document.getElementById(id); if (el) katex.render(src, el, { ...opts, displayMode: display }); };
+      const cmp = compiled.value;
+      if (cmp.T) put('tex-T', `T(n) = ${cmp.T.tex}`, true);
+      if (cmp.g) put('tex-g', `g(n) = ${cmp.g.tex}`, true);
+      if (!ready.value) return;
+      put('tex-th-T', `T(n) = ${cmp.T.tex}`);
+      put('tex-th-cg', `c \\cdot g(n) = c \\cdot ${cmp.g.tex}`);
+      put('formula-box', '\\begin{gathered} T(n) \\in O(g(n)) \\iff \\\\ \\exists\\, c > 0,\\ n_0 \\;:\\; T(n) \\le c \\cdot g(n) \\quad \\forall\\, n \\ge n_0 \\end{gathered}', true);
+      if (proof.value.ok) put('proof-box', proof.value.tex, true);
+      put('limit-box', limitInfo.value.tex, true);
+      const a = analysis.value;
+      const ok = a && !a.unbounded && !a.firstFail;
+      put('subst-box', `\\begin{gathered} ${cmp.T.tex} \\;\\le\\; ${texNum(c.value)} \\cdot ${cmp.g.tex} \\quad \\forall\\, n \\ge ${n0.value} \\\\ `
+        + (ok ? `\\therefore\\; ${cmp.T.tex} \\in O(${cmp.g.tex})` : a.unbounded ? `\\text{ninguna } c \\text{ alcanza} \\;\\Rightarrow\\; ${cmp.T.tex} \\notin O(${cmp.g.tex})` : `\\text{no se cumple con estos valores}`)
+        + ' \\end{gathered}', true);
+    }
+
+    function loadExample(ex) {
+      tExpr.value = ex.t; gExpr.value = ex.g; c.value = ex.c; n0.value = ex.n0; nMin.value = 0; nMax.value = ex.nMax;
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+    }
+
+    // ── Persistencia (autoguardado) + compartir por URL (#d=...) ──
+    function currentState() {
+      return { tExpr: tExpr.value, gExpr: gExpr.value, c: c.value, n0: n0.value, nMin: nMin.value, nMax: nMax.value, view: view.value, yLog: yLog.value };
+    }
+    function applyState(data) {
+      tExpr.value = typeof data.tExpr === 'string' ? data.tExpr : tExpr.value;
+      gExpr.value = typeof data.gExpr === 'string' ? data.gExpr : gExpr.value;
+      c.value = data.c ?? c.value;
+      n0.value = data.n0 ?? n0.value;
+      nMin.value = data.nMin ?? 0;
+      nMax.value = data.nMax ?? nMax.value;
+      view.value = data.view === 'ratio' ? 'ratio' : 'funcs';
+      yLog.value = !!data.yLog;
+    }
+    function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState())); }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        applyState(JSON.parse(raw));
+      } catch (e) { /* datos corruptos: arrancar con los valores por defecto */ }
+    }
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer la configuración de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo": volver al ejemplo de la diapositiva ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { if (newConfirm.value) newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      applyState(DEFAULTS);
+      newConfirm.value = false;
+    }
+
+    loadInitialState();
+    watch([tExpr, gExpr, c, n0, nMin, nMax, view, yLog], () => { persist(); nextTick(renderMath); });
+    nextTick(renderMath);
+
+    return {
+      EXAMPLES, CH, fmtVal,
+      tExpr, gExpr, c, cLog, n0, nMin, nMax, view, yLog, dragging, onChartWheel, onChartDown, onChartLeave, resetZoom, tError, gError, constError, ready,
+      verdict, minCValue, minN0Value, useMinC, useMinN0, proofRows, proof, useProof, limitInfo,
+      chart, hover, chartWrapEl, onChartMove, loadExample,
+      isDark, toggleTheme,
+      shareCopied, shareCurrentState,
+      newConfirm, handleNewClick,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

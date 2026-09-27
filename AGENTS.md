@@ -60,6 +60,8 @@ Las reglas de stack/idioma, **Modo claro/oscuro**, **Persistencia/"Nuevo"/Compar
 
 **Variante con gráfico (`complejidad/comparador.html`)**: mismo layout de 2 columnas, con un gráfico de líneas en `<svg>` dentro del template (sin librería), dibujado en píxeles al ancho real de la card (medido con `ResizeObserver`). **No usar `viewBox` en los SVG del template**: como el template vive dentro del HTML, el navegador pasa los atributos a minúscula y `viewbox` no lo entiende el SVG. Colores de series: paleta categórica validada con el skill `dataviz` para los fondos de Bootstrap (claro y oscuro), asignada por posición de la función en la lista (fija, no por orden de marcado); desde la 9ª se repite el tono con otro trazo. Los valores se manejan como log10 para no desbordar. Las funciones propias se evalúan con un parser de descenso recursivo, **nunca con `eval`**: el estado viaja en la URL de Compartir.
 
+`complejidad/big-o.html` reusa el mismo esqueleto (parser seguro, gráfico SVG medido) con dos series fijas (T(n) en el color de texto y c·g(n) en `--bs-danger`, como en la teoría) y una verificación numérica (`analyze`, `minC`, `minN0`) que siempre dice hasta dónde verificó.
+
 ## Familia 2: visualizaciones basadas en Canvas (`recursion/`)
 
 Para diagramas/grafos (árboles de llamadas, DAGs), no el layout de 2 columnas. Referencia: `recursion/call-tree.html`.
