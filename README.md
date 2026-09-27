@@ -6,24 +6,6 @@ Visualizaciones interactivas para enseñar Programación Avanzada. Cada visualiz
 
 ## Visualizaciones disponibles
 
-### Programación Dinámica
-
-| Archivo | Tema | Complejidad |
-|---|---|---|
-| [`dp/knapsack.html`](dp/knapsack.html) | Mochila 0/1 | O(n·W) |
-| [`dp/lcs.html`](dp/lcs.html) | Subsecuencia Común más Larga (LCS) | O(m·n) |
-| [`dp/edit-distance.html`](dp/edit-distance.html) | Distancia de Edición (Levenshtein) | O(m·n) |
-
-Todas permiten:
-- Editar los datos de entrada (cadenas, capacidad, elementos, costos) y resolver.
-- Ver la tabla de PD completa.
-- Hacer clic en cualquier celda para ver, paso a paso, la fórmula de recurrencia y la sustitución numérica que produjo ese valor, con las celdas de las que depende resaltadas por color.
-- Ver el resultado final (valor óptimo / LCS / distancia mínima) y la reconstrucción de la solución (objetos elegidos / subsecuencia / secuencia de operaciones).
-- Cambiar entre modo claro y oscuro (botón 🌙/☀️ en la barra superior, se recuerda entre visitas).
-- Autoguardado en el navegador (localStorage): la configuración queda como estaba al volver a abrir la herramienta.
-- Botón "🆕 Nuevo": vuelve a los valores de ejemplo (con confirmación de 2 pasos).
-- Botón "🔗 Compartir": copia un link con la configuración actual (cadenas, capacidad, elementos, costos) codificada en la URL — al abrirlo la carga directo, sin backend.
-
 ### Recursión
 
 | Archivo | Tema |
@@ -94,6 +76,24 @@ El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
 - Exporta a PPTX (PowerPoint / Google Slides): una diapositiva 16:9 con figuras nativas editables. Las aristas son conectores enganchados a los nodos (al mover un nodo en la presentación, sus aristas lo siguen); los costos son cuadros de texto sueltos que no se mueven solos.
 - Exporta también a DOT (Graphviz) con colores, tipos de línea, costos como `label` y la posición actual de cada nodo (`pos`, la respetan `neato -n`/`fdp`; `dot` arma su propio layout).
 - "🔗 Compartir" incluye el texto del grafo, si es dirigido, los colores de los nodos y los tipos de línea (no las posiciones: al abrir el link se usa el layout circular). El autoguardado local sí recuerda las posiciones.
+
+### Programación Dinámica
+
+| Archivo | Tema | Complejidad |
+|---|---|---|
+| [`dp/knapsack.html`](dp/knapsack.html) | Mochila 0/1 | O(n·W) |
+| [`dp/lcs.html`](dp/lcs.html) | Subsecuencia Común más Larga (LCS) | O(m·n) |
+| [`dp/edit-distance.html`](dp/edit-distance.html) | Distancia de Edición (Levenshtein) | O(m·n) |
+
+Todas permiten:
+- Editar los datos de entrada (cadenas, capacidad, elementos, costos) y resolver.
+- Ver la tabla de PD completa.
+- Hacer clic en cualquier celda para ver, paso a paso, la fórmula de recurrencia y la sustitución numérica que produjo ese valor, con las celdas de las que depende resaltadas por color.
+- Ver el resultado final (valor óptimo / LCS / distancia mínima) y la reconstrucción de la solución (objetos elegidos / subsecuencia / secuencia de operaciones).
+- Cambiar entre modo claro y oscuro (botón 🌙/☀️ en la barra superior, se recuerda entre visitas).
+- Autoguardado en el navegador (localStorage): la configuración queda como estaba al volver a abrir la herramienta.
+- Botón "🆕 Nuevo": vuelve a los valores de ejemplo (con confirmación de 2 pasos).
+- Botón "🔗 Compartir": copia un link con la configuración actual (cadenas, capacidad, elementos, costos) codificada en la URL — al abrirlo la carga directo, sin backend.
 
 ## Cómo usarlas
 
