@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Heap de mínimo</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .main-row { flex: 1 1 auto; display: flex; min-height: 0; }
+    .left-col { flex: 2 1 0; display: flex; flex-direction: column; min-width: 0; position: relative; }
+    .tree-wrap { flex: 1 1 auto; overflow: auto; min-height: 0; padding: 1rem; }
+    .array-wrap { flex: 0 0 auto; overflow-x: auto; border-top: 1px solid var(--bs-border-color); padding: .5rem 1rem; }
+    .code-panel { flex: 1 1 0; overflow-y: auto; border-left: 1px solid var(--bs-border-color); min-width: 320px; }
+    .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
+    .editor-panel { position: absolute; bottom: 1rem; left: 1rem; width: 320px; max-width: calc(100% - 2rem); z-index: 10; }
+    .pseudo-code { font-family: Consolas, monospace; font-size: .8rem; white-space: pre; padding: .5rem 0; overflow-x: auto; }
+    .pseudo-line { padding: .1rem .75rem; min-height: 1.2em; }
+    .pseudo-active { background: var(--bs-warning-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .heap-array td, .heap-array th { min-width: 2.6rem; padding: .25rem .5rem; }
+    .heap-array .pickable { cursor: pointer; }
+    /* Parentesco del i elegido en la tabla: contorno (no fondo), para no pisar los colores del paso */
+    .rel-self   { --rel: var(--bs-emphasis-color); }
+    .rel-parent { --rel: var(--bs-indigo); }
+    .rel-child  { --rel: var(--bs-teal); }
+    .heap-array [class*="rel-"] { box-shadow: inset 0 0 0 3px var(--rel); }
+    .rel-swatch { display: inline-block; width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 3px dashed var(--rel); }
+    .cell-null { color: var(--bs-secondary-color); font-style: italic; }
+
+    /* Un rol por color, igual en el arreglo y en el árbol */
+    .role-actual   { --role-bg: var(--bs-warning-bg-subtle); --role-stroke: var(--bs-warning); }
+    .role-compare  { --role-bg: var(--bs-info-bg-subtle);    --role-stroke: var(--bs-info); }
+    .role-menor    { --role-bg: var(--bs-primary-bg-subtle); --role-stroke: var(--bs-primary); }
+    .role-swapped  { --role-bg: var(--bs-success-bg-subtle); --role-stroke: var(--bs-success); }
+    .role-removed  { --role-bg: var(--bs-danger-bg-subtle);  --role-stroke: var(--bs-danger); }
+    td[class*="role-"] { background-color: var(--role-bg) !important; font-weight: 600; }
+
+    /* Árbol: cada nodo es un <g> identificado por el elemento, así un intercambio se ve como un desplazamiento */
+    .heap-node circle { fill: var(--bs-body-bg); stroke: var(--bs-secondary-color); stroke-width: 1.5; }
+    .heap-node[class*="role-"] circle { fill: var(--role-bg); stroke: var(--role-stroke); stroke-width: 3; }
+    .heap-node.ghost { opacity: .35; }
+    .heap-node text { fill: var(--bs-emphasis-color); font-size: 14px; }
+    .heap-index { fill: var(--bs-secondary-color); font-size: 11px; }
+    .heap-edge { stroke: var(--bs-secondary-color); stroke-width: 1.5; }
+    /* Después de las reglas de .heap-node circle, con la misma especificidad que la de rol: gana esta */
+    .heap-node circle.rel-ring { fill: none; stroke: var(--rel); stroke-width: 3; stroke-dasharray: 5 3; }
+    .heap-hole { fill: var(--bs-body-bg); stroke: var(--bs-secondary-color); stroke-width: 1.5; stroke-dasharray: 4 4; }
+    @media (max-width: 768px) {
+      #app { height: auto; }
+      .main-row { flex-direction: column; }
+      .tree-wrap { min-height: 320px; }
+      .code-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand mb-0 h5">🔺 Heap de mínimo</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">Heap · insertar/extraer O(log n)</span>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-light" @click="restartAnimation" title="Volver al heap vacío">⏮</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente">⏩</button>
+      </div>
+      <input type="range" class="form-range" style="width:80px" min="200" max="2000" step="50"
+        v-model.number="speedMs" title="Velocidad de reproducción" />
+      <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="toggleEditor" title="Editar la secuencia de operaciones">✏️ Secuencia</button>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver a la secuencia de ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir esta secuencia">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="main-row">
+    <div class="left-col">
+      <div class="tree-wrap" ref="treeWrapEl">
+        <svg :width="tree.width" :height="tree.height" class="d-block">
+          <line v-for="e in tree.edges" :key="e.i" class="heap-edge"
+            :x1="slotAt(e.p).x" :y1="slotAt(e.p).y" :x2="slotAt(e.i).x" :y2="slotAt(e.i).y" />
+          <g :transform="`translate(${slotAt(tree.hole).x}, ${slotAt(tree.hole).y})`">
+            <title>Acá cae el próximo elemento insertado</title>
+            <circle :r="NODE_R" class="heap-hole" />
+            <text :y="NODE_R + 19" class="heap-index" text-anchor="middle">{{ tree.hole }}</text>
+          </g>
+          <g v-for="nd in leaving" :key="`sale-${nd.id}`" class="heap-node" :transform="nodeTransform(nd)">
+            <circle :r="NODE_R" />
+            <text text-anchor="middle" dominant-baseline="central">{{ fmt(nd.v) }}</text>
+          </g>
+          <g v-for="nd in tree.nodes" :key="nd.id" class="heap-node" :class="[roleOf(nd.i), { ghost: nd.ghost }]"
+            :transform="nodeTransform(nd)" @click="pickIndex(nd.i)" style="cursor: pointer;">
+            <circle v-if="relOf(nd.i)" :r="NODE_R + 6" class="rel-ring" :class="relOf(nd.i)" />
+            <circle :r="NODE_R" />
+            <text text-anchor="middle" dominant-baseline="central">{{ fmt(nd.v) }}</text>
+            <text :y="NODE_R + 19" class="heap-index" text-anchor="middle">{{ nd.i }}</text>
+          </g>
+        </svg>
+      </div>
+
+      <div class="array-wrap">
+        <table class="table table-sm table-bordered text-center mb-1 small heap-array" style="width: auto;">
+          <tbody>
+            <tr>
+              <th class="dp-header-cell">i</th>
+              <th class="dp-header-cell" v-for="(_, i) in currentStep.arr" :key="i" :class="[relOf(i), { pickable: i > 0 }]"
+                @click="pickIndex(i)" :title="i > 0 ? `Marcar el padre y los hijos de ${i}` : ''">{{ i }}</th>
+              <th class="dp-header-cell text-muted" v-if="!currentStep.arr.length">—</th>
+            </tr>
+            <tr>
+              <th class="dp-header-cell">heap[i]</th>
+              <td v-for="(item, i) in currentStep.arr" :key="i" :class="[roleOf(i), relOf(i), { 'cell-null': i === 0, pickable: i > 0 }]"
+                @click="pickIndex(i)"
+                :title="i === 0 ? 'La posición 0 no se usa: así padre(i) = ⌊i/2⌋ e hijos 2i y 2i+1' : `Marcar el padre y los hijos de ${i}`">
+                {{ i === 0 ? 'NULO' : fmt(item.v) }}
+              </td>
+              <td class="text-muted" v-if="!currentStep.arr.length">(vacío)</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="small text-muted">|heap| = {{ currentStep.arr.length }} · Tocá un i (en la tabla o en el árbol) para marcar su padre y sus hijos.</div>
+        <div class="small mt-1" v-if="kinship">
+          <span class="rel-swatch rel-self align-middle"></span> <strong>i = {{ kinship.i }}</strong> ·
+          <span class="rel-swatch rel-parent align-middle"></span> {{ kinship.parent }} ·
+          <span class="rel-swatch rel-child align-middle"></span> {{ kinship.children }}
+          <button type="button" class="btn-close ms-2 align-middle" style="font-size: .6rem" title="Quitar la marca" @click="pickedIndex = null"></button>
+        </div>
+        <div class="small mt-2 d-flex flex-wrap align-items-center gap-1">
+          <span class="text-muted me-1">Extraídos, en el orden en que salieron:</span>
+          <span class="text-muted" v-if="!currentStep.extracted.length">(ninguno todavía)</span>
+          <span v-for="(val, k) in currentStep.extracted" :key="k" class="badge border"
+            :class="currentStep.justExtracted && k === currentStep.extracted.length - 1 ? 'bg-danger' : 'bg-body-tertiary text-body'">{{ fmt(val) }}</span>
+        </div>
+      </div>
+
+      <div class="card shadow-sm editor-panel" v-if="showEditor">
+        <div class="card-body p-2">
+          <label class="form-label small text-muted mb-1">
+            Operaciones separadas por coma, espacio o línea: un número lo inserta, <code>x</code> extrae el mínimo y <code>?</code> lo consulta.
+          </label>
+          <textarea class="form-control form-control-sm mb-2" rows="4" v-model="opsDraft" style="font-family: monospace"></textarea>
+          <div class="alert alert-danger small py-1 px-2 mb-2" v-if="editorError">{{ editorError }}</div>
+          <button class="btn btn-dark btn-sm w-100" @click="applyEditor">▶ Aplicar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-panel">
+      <div class="p-3">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">➕ Operación</div>
+          <div class="card-body">
+            <div class="input-group input-group-sm mb-2">
+              <input type="number" class="form-control" v-model.number="liveValue" placeholder="x" @keyup.enter="addOp('insert')" :disabled="isPlaying" />
+              <button class="btn btn-dark" @click="addOp('insert')" :disabled="isPlaying">Insertar</button>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-secondary btn-sm flex-fill" @click="addOp('extract')" :disabled="isPlaying">Extraer mínimo</button>
+              <button class="btn btn-outline-secondary btn-sm flex-fill" @click="addOp('peek')" :disabled="isPlaying">Ver mínimo</button>
+            </div>
+            <div class="alert alert-danger small py-1 px-2 mt-2 mb-0" v-if="liveError">{{ liveError }}</div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">🔍 Explicación</div>
+          <div class="card-body">
+            <span class="badge fs-6 text-wrap text-start" :class="currentStep.badge.cls">{{ currentStep.badge.icon }} {{ currentStep.badge.text }}</span>
+            <div class="small border rounded p-2 mt-3 bg-body-tertiary" v-if="currentStep.algo === 'insert' || currentStep.algo === 'extract'">
+              <div>
+                <strong>{{ currentStep.swaps }}</strong> intercambio{{ currentStep.swaps === 1 ? '' : 's' }} ·
+                <strong>{{ currentStep.comparisons }}</strong> comparaci{{ currentStep.comparisons === 1 ? 'ón' : 'ones' }} en esta operación
+              </div>
+              <div v-if="currentStep.size">
+                Altura del heap: ⌊log₂ n⌋ = ⌊log₂ {{ currentStep.size }}⌋ = <strong>{{ Math.floor(Math.log2(currentStep.size)) }}</strong>
+              </div>
+              <div class="text-muted">{{ currentStep.algo === 'insert' ? 'Flotar' : 'Hundir' }} hace como mucho un intercambio por nivel, así que nunca más que la altura: O(log n).</div>
+            </div>
+            <p class="small text-muted mt-3 mb-0">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">💻 Pseudocódigo</div>
+          <div class="card-body p-0">
+            <p class="text-muted small p-3 mb-0" v-if="!currentStep.algo">Hacé una operación para ver su pseudocódigo.</p>
+            <div class="pseudo-code" v-else>
+              <div v-for="(line, idx) in CODE[currentStep.algo]" :key="idx" class="pseudo-line"
+                :class="{ 'pseudo-active': currentStep.activeLines.includes(idx) }">{{ line }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">📜 Historial</div>
+          <div class="list-group list-group-flush small history-list" style="max-height: 220px; overflow-y: auto; position: relative;">
+            <button type="button" class="list-group-item list-group-item-action py-1"
+              :class="{ active: currentStep.opIndex === -1 }" @click="goToStep(0)">Heap vacío</button>
+            <button v-for="(op, k) in ops" :key="k" type="button"
+              class="list-group-item list-group-item-action py-1" :class="{ active: currentStep.opIndex === k }"
+              @click="goToStep(opStart[k])">
+              {{ k + 1 }}. {{ opLabel(op) }}
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header fw-semibold">Leyenda</div>
+          <ul class="list-group list-group-flush small">
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-warning text-dark">&nbsp;&nbsp;</span> actual / pos: el elemento que flota o se hunde</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-info text-dark">&nbsp;&nbsp;</span> Con quién se compara (padre o hijos)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-primary">&nbsp;&nbsp;</span> menor: el hijo más chico encontrado</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-success">&nbsp;&nbsp;</span> Recién intercambiados</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-danger">&nbsp;&nbsp;</span> Mínimo que se extrae o se consulta</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="rel-swatch rel-parent"></span><span class="rel-swatch rel-child"></span> Padre e hijos del i elegido en la tabla o el árbol</li>
+            <li class="list-group-item">
+              Con la posición 0 sin usar: padre(i) = ⌊i/2⌋, hijoIzquierdo(i) = 2i, hijoDerecho(i) = 2i + 1.
+              El círculo punteado marca dónde cae el próximo elemento insertado.
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar text-center small border-top">
+    <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } = Vue;
+
+// Pseudocódigo de la cátedra; el panel muestra el de la operación en curso.
+const CODE = {
+  insert: [
+    'ALGORITMO InsertarHeap(arreglo heap, elemento x)',
+    '    SI |heap| = 0 ENTONCES',
+    '        heap[0] ← NULO',
+    '    heap[|heap|] ← x',
+    '    flotarElemento(heap, |heap| - 1)',
+    '',
+    'ALGORITMO flotarElemento(arreglo heap, entero pos)',
+    '    actual ← pos',
+    '    MIENTRAS actual > 1 Y heap[actual] < heap[padre(actual)] HACER',
+    '        intercambiarValores(heap, actual, padre(actual))',
+    '        actual ← padre(actual)',
+  ],
+  extract: [
+    'ALGORITMO ExtraerMinimo(arreglo heap)',
+    '    SI |heap| ≤ 1 ENTONCES',
+    '        RETORNAR NULO',
+    '    minimo ← heap[1]',
+    '    heap[1] ← heap[|heap| - 1]',
+    '    quitarUltimo(heap)',
+    '    hundirElemento(heap, 1)',
+    '    RETORNAR minimo',
+    '',
+    'ALGORITMO hundirElemento(arreglo heap, entero pos)',
+    '    n ← |heap|',
+    '    izq ← hijoIzquierdo(pos)',
+    '    der ← hijoDerecho(pos)',
+    '    menor ← pos',
+    '    SI izq < n Y heap[izq] < heap[menor] ENTONCES',
+    '        menor ← izq',
+    '    SI der < n Y heap[der] < heap[menor] ENTONCES',
+    '        menor ← der',
+    '    SI menor ≠ pos ENTONCES',
+    '        intercambiarValores(heap, pos, menor)',
+    '        hundirElemento(heap, menor)',
+  ],
+  peek: [
+    'ALGORITMO VerMinimo(arreglo heap)',
+    '    SI |heap| ≤ 1 ENTONCES',
+    '        RETORNAR NULO',
+    '    RETORNAR heap[1]',
+  ],
+};
+
+// Varias inserciones que flotan (el 1 sube 3 niveles hasta la raíz) y una extracción que hunde 2 niveles.
+const DEFAULT_OPS_TEXT = '7, 5, 9, 8, 6, 3, 4, 1, x';
+
+const NODE_R = 18, SLOT_W = 46, LEVEL_H = 70;
+// Animación de los nodos: duración y cuánto se curva el recorrido (fracción de la distancia hacia un costado).
+const ANIM_MS = 500, ORBIT = 0.6;
+
+function fmt(v) { return v.toLocaleString('es'); }
+function opLabel(op) { return op.type === 'insert' ? `insertar(${fmt(op.v)})` : op.type === 'extract' ? 'extraerMínimo()' : 'verMínimo()'; }
+const padre = i => Math.floor(i / 2);
+
+// ── Parseo: número = insertar, x = extraer mínimo, ? = ver mínimo ──
+function parseOps(text) {
+  const ops = [];
+  for (const tok of text.split(/[\s,]+/).filter(Boolean)) {
+    if (/^x$/i.test(tok)) ops.push({ type: 'extract' });
+    else if (tok === '?') ops.push({ type: 'peek' });
+    else if (/^-?\d+([.,]\d+)?$/.test(tok)) ops.push({ type: 'insert', v: Number(tok.replace(',', '.')) });
+    else return { error: `No se entiende "${tok}": usá un número para insertar, "x" para extraer o "?" para ver el mínimo.` };
+  }
+  return { ops };
+}
+
+// ── Corre las operaciones una sola vez sobre un arreglo real y guarda un snapshot por paso didáctico.
+// heap[0] es null (NULO); cada elemento es { id, v } con un id propio, así el árbol lo anima al moverse.
+function computeSteps(ops) {
+  const heap = [];
+  const steps = [];
+  const opStart = [];
+  let nextId = 0;
+  let opIndex = -1, algo = null;
+
+  // Costo de la operación en curso (se reinicia en cada una) y mínimos extraídos hasta el momento.
+  let comparisons = 0, swaps = 0;
+  const extracted = [];
+
+  function snapshot(activeLines, badge, marks = {}) {
+    steps.push({
+      opIndex, algo, activeLines, badge,
+      arr: heap.map(item => item && { ...item }),
+      actual: marks.actual ?? null, compare: marks.compare ?? [], menor: marks.menor ?? null,
+      swapped: marks.swapped ?? [], removed: marks.removed ?? null,
+      comparisons, swaps,
+      size: heap.filter((item, i) => i > 0 && !item.ghost).length,
+      extracted: [...extracted], justExtracted: !!marks.justExtracted,
+    });
+  }
+  const v = i => fmt(heap[i].v);
+  function swap(i, j) { [heap[i], heap[j]] = [heap[j], heap[i]]; }
+
+  function insert(x) {
+    if (heap.length === 0) {
+      heap.push(null);
+      snapshot([1, 2], { icon: '🆕', text: '|heap| = 0: se crea heap[0] = NULO. La posición 0 no se usa, así padre(i) = ⌊i/2⌋.', cls: 'bg-secondary' });
+    }
+    heap.push({ id: nextId++, v: x });
+    const pos = heap.length - 1;
+    snapshot([3], { icon: '📥', text: `heap[|heap|] = heap[${pos}] ← ${fmt(x)}: el elemento entra al final, en la primera posición libre.`, cls: 'bg-primary' }, { actual: pos });
+
+    // flotarElemento(heap, pos)
+    let actual = pos;
+    snapshot([4, 6, 7], { icon: '⬆️', text: `flotarElemento(heap, ${pos}): actual ← ${pos}.`, cls: 'bg-secondary' }, { actual });
+    while (true) {
+      if (actual <= 1) {
+        snapshot([8], { icon: '🏁', text: `actual = 1: llegó a la raíz, termina de flotar.`, cls: 'bg-success' }, { actual });
+        break;
+      }
+      const p = padre(actual);
+      const idx = `padre(${actual}) = ⌊${actual}/2⌋ = ${p}`;
+      comparisons++;
+      if (!(heap[actual].v < heap[p].v)) {
+        snapshot([8], { icon: '🏁', text: `${idx}. heap[${actual}] = ${v(actual)} ≥ heap[${p}] = ${v(p)}: ya está en su lugar, termina de flotar.`, cls: 'bg-success' }, { actual, compare: [p] });
+        break;
+      }
+      snapshot([8], { icon: '🔎', text: `${idx}. heap[${actual}] = ${v(actual)} < heap[${p}] = ${v(p)}: es menor que su padre, tiene que subir.`, cls: 'bg-info text-dark' }, { actual, compare: [p] });
+      swap(actual, p);
+      swaps++;
+      snapshot([9, 10], { icon: '🔁', text: `Se intercambian heap[${actual}] y heap[${p}]; actual ← padre(${actual}) = ${p}.`, cls: 'bg-success' }, { actual: p, swapped: [actual, p] });
+      actual = p;
+    }
+  }
+
+  function sink(pos, depth) {
+    const call = `hundirElemento(heap, ${pos})`;
+    const n = heap.length;
+    const izq = 2 * pos, der = 2 * pos + 1;
+    let menor = pos;
+    const kids = [izq, der].filter(i => i < n);
+    snapshot([9, 10, 11, 12, 13], { icon: '⬇️', text: `${call}${depth ? ` (llamada recursiva nº ${depth})` : ''}: n = ${n}, izq = 2·${pos} = ${izq}, der = 2·${pos} + 1 = ${der}, menor ← ${pos}.`, cls: 'bg-secondary' }, { actual: pos, compare: kids, menor });
+
+    for (const [child, name, lines] of [[izq, 'izq', [14, 15]], [der, 'der', [16, 17]]]) {
+      if (child >= n) {
+        snapshot([lines[0]], { icon: '➖', text: `${name} = ${child} ≥ n = ${n}: no hay hijo ${name === 'izq' ? 'izquierdo' : 'derecho'}.`, cls: 'bg-secondary' }, { actual: pos, menor });
+      } else if (comparisons++, heap[child].v < heap[menor].v) {
+        const before = menor;
+        menor = child;
+        snapshot(lines, { icon: '🔎', text: `heap[${name}] = heap[${child}] = ${v(child)} < heap[menor] = heap[${before}] = ${v(before)}: menor ← ${child}.`, cls: 'bg-info text-dark' }, { actual: pos, compare: [child], menor });
+      } else {
+        snapshot([lines[0]], { icon: '🔎', text: `heap[${name}] = heap[${child}] = ${v(child)} ≥ heap[menor] = heap[${menor}] = ${v(menor)}: menor no cambia.`, cls: 'bg-info text-dark' }, { actual: pos, compare: [child], menor });
+      }
+    }
+
+    if (menor === pos) {
+      snapshot([18], { icon: '🏁', text: `menor = pos = ${pos}: ningún hijo es más chico, ya está en su lugar. Termina ${call}.`, cls: 'bg-success' }, { actual: pos });
+      return;
+    }
+    swap(pos, menor);
+    swaps++;
+    snapshot([18, 19], { icon: '🔁', text: `menor = ${menor} ≠ pos = ${pos}: se intercambian heap[${pos}] y heap[${menor}].`, cls: 'bg-success' }, { actual: menor, swapped: [pos, menor] });
+    snapshot([20], { icon: '↪️', text: `Llamada recursiva: hundirElemento(heap, ${menor}), para seguir bajando desde su nueva posición.`, cls: 'bg-secondary' }, { actual: menor });
+    sink(menor, depth + 1);
+  }
+
+  function extract() {
+    if (heap.length <= 1) {
+      snapshot([1, 2], { icon: '🚫', text: `|heap| = ${heap.length} ≤ 1: el heap está vacío, se retorna NULO.`, cls: 'bg-danger' });
+      return;
+    }
+    const minimo = heap[1];
+    snapshot([3], { icon: '📤', text: `minimo ← heap[1] = ${fmt(minimo.v)}: en un heap de mínimo, el menor siempre está en la raíz.`, cls: 'bg-danger' }, { removed: 1 });
+    const last = heap.length - 1;
+    if (last === 1) {
+      snapshot([4], { icon: '📋', text: `heap[1] ← heap[1]: era el único elemento.`, cls: 'bg-secondary' }, { removed: 1 });
+      heap.pop();
+      snapshot([5], { icon: '✂️', text: `quitarUltimo(heap): el heap queda vacío (solo heap[0] = NULO).`, cls: 'bg-secondary' });
+      snapshot([6, 9, 10, 11, 12, 13, 14, 16, 18], { icon: '⬇️', text: `hundirElemento(heap, 1): con n = |heap| = 1 no hay hijos (izq = 2 ≥ n, der = 3 ≥ n), menor queda en pos y termina enseguida.`, cls: 'bg-secondary' });
+    } else {
+      // El último pasa a la raíz; hasta quitarUltimo, su lugar viejo queda como una copia tenue.
+      heap[1] = heap[last];
+      heap[last] = { ...heap[last], id: `${heap[last].id}-copia`, ghost: true };
+      snapshot([4], { icon: '📋', text: `heap[1] ← heap[|heap| - 1] = heap[${last}] = ${v(1)}: el último elemento pasa a la raíz, pisando al mínimo.`, cls: 'bg-secondary' }, { actual: 1, removed: last });
+      heap.pop();
+      snapshot([5], { icon: '✂️', text: `quitarUltimo(heap): se borra la copia de la posición ${last}; ahora |heap| = ${heap.length}.`, cls: 'bg-secondary' }, { actual: 1 });
+      snapshot([6], { icon: '⬇️', text: `hundirElemento(heap, 1): la raíz probablemente quedó grande, hay que hundirla.`, cls: 'bg-secondary' }, { actual: 1 });
+      sink(1, 0);
+    }
+    extracted.push(minimo.v);
+    snapshot([7], { icon: '✅', text: `RETORNAR minimo = ${fmt(minimo.v)}.`, cls: 'bg-success' }, { justExtracted: true });
+  }
+
+  function peek() {
+    if (heap.length <= 1) {
+      snapshot([1, 2], { icon: '🚫', text: `|heap| = ${heap.length} ≤ 1: el heap está vacío, se retorna NULO.`, cls: 'bg-danger' });
+      return;
+    }
+    snapshot([3], { icon: '👀', text: `RETORNAR heap[1] = ${v(1)}: el mínimo está en la raíz, se consulta en O(1) sin sacarlo.`, cls: 'bg-danger' }, { removed: 1 });
+  }
+
+  snapshot([], { icon: '🌱', text: 'Heap vacío. Insertá un valor, extraé el mínimo o consultalo.', cls: 'bg-secondary' });
+  ops.forEach((op, k) => {
+    opIndex = k;
+    algo = op.type;
+    comparisons = 0;
+    swaps = 0;
+    opStart.push(steps.length);
+    if (op.type === 'insert') insert(op.v);
+    else if (op.type === 'extract') extract();
+    else peek();
+  });
+  return { steps, opStart };
+}
+
+// Posición del nodo i en un árbol completo: nivel ⌊log₂ i⌋, repartido parejo dentro del nivel.
+function nodePos(i, width) {
+  const d = Math.floor(Math.log2(i));
+  const slots = 2 ** d;
+  return { x: (i - slots + 0.5) * width / slots, y: d * LEVEL_H + NODE_R + 6 };
+}
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-estructuras-heap';
+
+    const opsText = ref(DEFAULT_OPS_TEXT);
+    const ops = ref([]);
+    const steps = ref([]);
+    const opStart = ref([]);
+    const currentStepIndex = ref(0);
+    const isPlaying = ref(false);
+    const speedMs = ref(900);
+    let playTimer = null;
+
+    const showEditor = ref(false);
+    const opsDraft = ref(DEFAULT_OPS_TEXT);
+    const editorError = ref('');
+    const liveValue = ref(4);
+    const liveError = ref('');
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+
+    const currentStep = computed(() => steps.value[currentStepIndex.value]);
+    const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
+
+    // ── Layout: ancho y alto fijos según el heap más grande de toda la secuencia (más el hueco del próximo),
+    // árbol anclado arriba y centrado en el ancho disponible: así no cambia de escala ni salta entre pasos ──
+    const treeWrapEl = ref(null);
+    const wrapWidth = ref(0);
+    const treeDims = computed(() => {
+      const maxHole = Math.max(1, ...steps.value.map(s => s.arr.length));
+      const depth = Math.floor(Math.log2(maxHole));
+      return { width: 2 ** depth * SLOT_W, height: (depth + 1) * LEVEL_H + 10 };
+    });
+    const tree = computed(() => {
+      const arr = currentStep.value.arr;
+      const { width: tw, height } = treeDims.value;
+      const width = Math.max(tw, wrapWidth.value);
+      const x0 = (width - tw) / 2;
+      const slot = i => { const q = nodePos(i, tw); return { x: q.x + x0, y: q.y }; };
+      const hole = Math.max(1, arr.length);
+      const slots = {}, edges = [], nodes = [];
+      for (let i = 1; i <= hole; i++) {
+        slots[i] = slot(i);
+        if (i > 1) edges.push({ i, p: padre(i) });
+      }
+      for (let i = 1; i < arr.length; i++) nodes.push({ id: arr[i].id, v: arr[i].v, ghost: arr[i].ghost, i, ...slots[i] });
+      return { nodes, edges, slots, hole, width, height };
+    });
+
+    // ── Animación (en JS y no con transition de CSS: al reordenarse el v-for, Vue mueve un <g> en el DOM
+    // y ese pierde la transición). Todo viaja desde lo que se está dibujando hacia `tree`:
+    //  - posiciones (slots) del árbol y sus aristas: en línea recta, así un cambio de ancho se desliza;
+    //    una posición nueva sale de la de su padre;
+    //  - un nodo que cambia de posición: por una curva con el control corrido a la izquierda del recorrido;
+    //    los dos de un intercambio viajan en sentidos opuestos, se curvan hacia lados opuestos y "orbitan";
+    //  - un nodo nuevo crece (escala 0 → 1) desde el padre; uno que se va se achica en su lugar ──
+    const shownSlot = reactive({});
+    const shownNode = reactive({});
+    const leaving = ref([]);
+    let prevTree = null, snapNext = true, animFrame = null;
+
+    function slotAt(i) { return shownSlot[i] ?? tree.value.slots[i]; }
+    function nodeTransform(nd) {
+      const p = nd.leaving ? nd : (shownNode[nd.id] ?? { x: nd.x, y: nd.y, s: 1 });
+      return `translate(${p.x}, ${p.y}) scale(${p.s})`;
+    }
+    function animateTo(t) {
+      cancelAnimationFrame(animFrame);
+      const snap = snapNext || matchMedia('(prefers-reduced-motion: reduce)').matches;
+      snapNext = false;
+      const slotMoves = Object.entries(t.slots).map(([i, to]) => {
+        const from = shownSlot[i] ?? (i > 1 ? (shownSlot[padre(i)] ?? t.slots[padre(i)]) : to);
+        return { i, from, to };
+      });
+      const prevIndex = new Map((prevTree?.nodes ?? []).map(nd => [nd.id, nd.i]));
+      const ids = new Set(t.nodes.map(nd => nd.id));
+      const nodeMoves = t.nodes.map(nd => {
+        const cur = shownNode[nd.id];
+        let from, s0;
+        if (cur) { from = cur; s0 = cur.s; }
+        else if (nd.ghost || nd.i === 1) { from = nd; s0 = nd.ghost ? 1 : 0; }  // la copia aparece en su lugar
+        else { from = shownSlot[padre(nd.i)] ?? t.slots[padre(nd.i)]; s0 = 0; }  // nace desde el padre
+        const moved = prevIndex.has(nd.id) && prevIndex.get(nd.id) !== nd.i;
+        const dx = nd.x - from.x, dy = nd.y - from.y;
+        const ctrl = moved
+          ? { x: (from.x + nd.x) / 2 - dy * ORBIT, y: (from.y + nd.y) / 2 + dx * ORBIT }
+          : { x: (from.x + nd.x) / 2, y: (from.y + nd.y) / 2 };
+        return { id: nd.id, from, ctrl, to: nd, s0 };
+      });
+      leaving.value = (prevTree?.nodes ?? []).filter(nd => !ids.has(nd.id))
+        .map(nd => ({ ...nd, ...(shownNode[nd.id] ?? nd), s: shownNode[nd.id]?.s ?? 1, leaving: true }));
+      for (const id of Object.keys(shownNode)) if (![...ids].some(x => String(x) === id)) delete shownNode[id];
+      for (const i of Object.keys(shownSlot)) if (!(i in t.slots)) delete shownSlot[i];
+      prevTree = t;
+
+      const start = performance.now();
+      function frame(now) {
+        const k = snap ? 1 : Math.min(1, (now - start) / ANIM_MS);
+        const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; // ease-in-out
+        const u = 1 - e;
+        const quad = (a, c, b) => u * u * a + 2 * u * e * c + e * e * b;
+        for (const m of slotMoves) shownSlot[m.i] = { x: m.from.x + (m.to.x - m.from.x) * e, y: m.from.y + (m.to.y - m.from.y) * e };
+        for (const m of nodeMoves) {
+          shownNode[m.id] = { x: quad(m.from.x, m.ctrl.x, m.to.x), y: quad(m.from.y, m.ctrl.y, m.to.y), s: m.s0 + (1 - m.s0) * e };
+        }
+        for (const nd of leaving.value) nd.s = Math.min(nd.s, 1 - e);
+        if (k < 1) animFrame = requestAnimationFrame(frame);
+        else leaving.value = [];
+      }
+      if (snap) frame(start); else animFrame = requestAnimationFrame(frame);
+    }
+
+    // El ancho disponible se mide; si cambia (ventana, panel), el árbol se reacomoda sin animar.
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      snapNext = true;
+      wrapWidth.value = entry.contentRect.width;
+    });
+    onMounted(() => resizeObserver.observe(treeWrapEl.value));
+
+    // ── Parentesco del i elegido (no se persiste): padre ⌊i/2⌋ e hijos 2i y 2i + 1 ──
+    const pickedIndex = ref(null);
+    function pickIndex(i) { if (i > 0) pickedIndex.value = pickedIndex.value === i ? null : i; }
+    function relOf(i) {
+      const k = pickedIndex.value;
+      if (!k || i < 1 || i >= currentStep.value.arr.length) return '';
+      if (i === k) return 'rel-self';
+      if (k > 1 && i === padre(k)) return 'rel-parent';
+      if (i === 2 * k || i === 2 * k + 1) return 'rel-child';
+      return '';
+    }
+    const kinship = computed(() => {
+      const k = pickedIndex.value, n = currentStep.value.arr.length;
+      if (!k) return null;
+      const exists = j => j < n ? '' : ' (no existe todavía)';
+      return {
+        i: k,
+        parent: k === 1 ? 'es la raíz, no tiene padre' : `padre(${k}) = ⌊${k}/2⌋ = ${padre(k)}`,
+        children: `hijoIzquierdo(${k}) = 2·${k} = ${2 * k}${exists(2 * k)}, hijoDerecho(${k}) = 2·${k} + 1 = ${2 * k + 1}${exists(2 * k + 1)}`,
+      };
+    });
+
+    function roleOf(i) {
+      const s = currentStep.value;
+      if (s.removed === i) return 'role-removed';
+      if (s.swapped.includes(i)) return 'role-swapped';
+      if (s.actual === i) return 'role-actual';
+      if (s.menor === i) return 'role-menor';
+      if (s.compare.includes(i)) return 'role-compare';
+      return '';
+    }
+
+    // ── Aplicar secuencia (lanza error si no es válida) ──
+    function applyOps(text) {
+      const { ops: parsed, error } = parseOps(text);
+      if (error) throw new Error(error);
+      const result = computeSteps(parsed);
+      opsText.value = text;
+      opsDraft.value = text;
+      ops.value = parsed;
+      steps.value = result.steps;
+      opStart.value = result.opStart;
+      stopAutoplay();
+      currentStepIndex.value = 0;
+    }
+
+    // ── Persistencia ──
+    function currentState() { return { opsText: opsText.value }; }
+    function applyState(data) { applyOps(data.opsText ?? opsText.value); }
+    function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState())); }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) { resetToDefault(); return; }
+        applyState(JSON.parse(raw));
+      } catch (e) { resetToDefault(); }
+    }
+
+    // ── Compartir por URL (#d=...) ──
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer la secuencia de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo" (2 pasos) ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      newConfirm.value = false;
+      editorError.value = '';
+      liveError.value = '';
+      applyState({ opsText: DEFAULT_OPS_TEXT });
+      persist();
+    }
+
+    // ── Editar secuencia / operación en vivo ──
+    function toggleEditor() {
+      showEditor.value = !showEditor.value;
+      opsDraft.value = opsText.value;
+      editorError.value = '';
+    }
+    function applyEditor() {
+      try { applyOps(opsDraft.value); } catch (e) { editorError.value = e.message; return; }
+      editorError.value = '';
+      persist();
+    }
+    // Agrega la operación al final y reproduce solo sus pasos, para ver los movimientos sin tocar nada.
+    function addOp(type) {
+      if (type === 'insert' && !Number.isFinite(liveValue.value)) { liveError.value = 'Escribí un número para insertar.'; return; }
+      const tok = type === 'insert' ? String(liveValue.value) : type === 'extract' ? 'x' : '?';
+      const base = opsText.value.trim();
+      try { applyOps(base ? `${base}, ${tok}` : tok); } catch (e) { liveError.value = e.message; return; }
+      liveError.value = '';
+      persist();
+      goToStep(opStart.value[opStart.value.length - 1]);
+      play(steps.value.length - 1);
+    }
+
+    // ── Reproducción ──
+    function goToStep(i) {
+      currentStepIndex.value = Math.max(0, Math.min(steps.value.length - 1, i));
+      // Scroll solo dentro del historial (scrollIntoView movería todo el panel y taparía el pseudocódigo).
+      nextTick(() => {
+        const list = document.querySelector('.history-list'), el = list?.querySelector('.active');
+        if (el) list.scrollTop = el.offsetTop - list.clientHeight / 2;
+        // La línea activa del pseudocódigo (el de extraer es largo) siempre a la vista, con el mínimo scroll.
+        document.querySelector('.pseudo-active')?.scrollIntoView({ block: 'nearest' });
+      });
+    }
+    function stepForward() { if (!isAtEnd.value) goToStep(currentStepIndex.value + 1); else stopAutoplay(); }
+    function stepBackward() { goToStep(currentStepIndex.value - 1); }
+    function restartAnimation() { stopAutoplay(); goToStep(0); }
+    function stopAutoplay() {
+      isPlaying.value = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    }
+    function play(untilIndex) {
+      isPlaying.value = true;
+      playTimer = setInterval(() => {
+        if (currentStepIndex.value >= untilIndex) { stopAutoplay(); return; }
+        stepForward();
+      }, speedMs.value);
+    }
+    function togglePlay() {
+      if (isPlaying.value) { stopAutoplay(); return; }
+      if (isAtEnd.value) goToStep(0);
+      play(steps.value.length - 1);
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+    }
+
+    loadInitialState();
+    watch(tree, animateTo); // después de cargar: antes no hay pasos
+    animateTo(tree.value);
+    onBeforeUnmount(() => { stopAutoplay(); cancelAnimationFrame(animFrame); resizeObserver.disconnect(); });
+
+    return {
+      CODE, NODE_R, fmt, opLabel, ops, opStart,
+      steps, currentStepIndex, currentStep, isAtEnd, tree, treeWrapEl, leaving, slotAt, nodeTransform, roleOf,
+      pickedIndex, pickIndex, relOf, kinship,
+      isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation, goToStep,
+      showEditor, toggleEditor, opsDraft, editorError, applyEditor,
+      liveValue, liveError, addOp,
+      newConfirm, handleNewClick, shareCopied, shareCurrentState,
+      isDark, toggleTheme,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

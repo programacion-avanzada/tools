@@ -90,6 +90,22 @@ El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
 - Exporta también a DOT (Graphviz) con colores, tipos de línea, costos como `label` y la posición actual de cada nodo (`pos`, la respetan `neato -n`/`fdp`; `dot` arma su propio layout).
 - "🔗 Compartir" incluye el texto del grafo, si es dirigido, los colores de los nodos y los tipos de línea (no las posiciones: al abrir el link se usa el layout circular). El autoguardado local sí recuerda las posiciones.
 
+### Estructuras de datos
+
+| Archivo | Tema | Complejidad |
+|---|---|---|
+| [`estructuras/heap.html`](estructuras/heap.html) | Heap de mínimo (arreglo con la posición 0 sin usar) | insertar/extraer O(log n) |
+
+El heap permite:
+- Insertar un valor, extraer el mínimo o consultarlo en vivo: cada operación se reproduce sola, paso a paso (cada comparación e intercambio de flotar/hundir), o se carga una secuencia entera como texto (`7, 5, 9, x, ?`: número = insertar, `x` = extraer, `?` = ver mínimo).
+- Ver a la vez el árbol y el arreglo, con los mismos resaltados: el elemento que flota o se hunde, con quién se compara, el menor de los hijos, el par intercambiado y el mínimo extraído. En el árbol, los intercambios se ven como desplazamientos animados, y un círculo punteado marca dónde cae el próximo elemento.
+- Seguir el pseudocódigo de la cátedra (InsertarHeap + flotarElemento, ExtraerMinimo + hundirElemento, VerMinimo) con la línea activa resaltada y una explicación de cada paso, incluida la llamada recursiva de hundirElemento en la que se está.
+- La explicación de cada paso hace la cuenta de los índices (`padre(5) = ⌊5/2⌋ = 2`, `izq = 2·2 = 4`, `der = 2·2 + 1 = 5`), que es lo que simplifica dejar la posición 0 sin usar.
+- Tocar un i en la tabla (o un nodo en el árbol) marca su padre y sus hijos en los dos lados, con la cuenta: `padre(5) = ⌊5/2⌋ = 2`, `hijoIzquierdo(5) = 10 (no existe todavía)`...
+- Contador de intercambios y comparaciones de la operación en curso, al lado de la altura del heap ⌊log₂ n⌋: flotar y hundir hacen como mucho un intercambio por nivel, O(log n).
+- Tira con los mínimos extraídos, en el orden en que salieron.
+- Historial de operaciones clickeable, autoplay con velocidad ajustable, autoguardado, "🆕 Nuevo", "🔗 Compartir" y modo claro/oscuro como el resto.
+
 ### Programación Dinámica
 
 | Archivo | Tema | Complejidad |
