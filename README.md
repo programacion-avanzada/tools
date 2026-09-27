@@ -50,6 +50,7 @@ Permite:
 | [`grafos/bfs.html`](grafos/bfs.html) | BFS — Recorrido en Anchura (cola + array de distancias) | O(V+E) |
 | [`grafos/dijkstra.html`](grafos/dijkstra.html) | Dijkstra — Caminos Mínimos (cola de prioridad) | O((V+E)·log V) |
 | [`grafos/prim.html`](grafos/prim.html) | Prim — Árbol de Expansión Mínima (cola de prioridad de aristas) | O(E·log E) |
+| [`grafos/kruskal.html`](grafos/kruskal.html) | Kruskal — Árbol de Expansión Mínima (cola de aristas + Union-Find) | O(E·log E) |
 
 DFS, BFS, Dijkstra y Prim permiten:
 - Cargar cualquier grafo no dirigido escribiendo su lista de aristas (`A-B`, una por línea o separadas por coma; un token sin guion declara un nodo aislado); el orden de las aristas define el orden de exploración de los vecinos.
@@ -70,6 +71,12 @@ Prim además:
 - Cola de prioridad de aristas `(peso, u, v)` sin actualización de prioridades: las entradas cuyo `v` ya está en el MST se ven tachadas y se descartan al extraerlas.
 - Tabla de seguimiento (Iteración | V | V_MST | Arista seleccionada | Peso | W), con las aristas descartadas como filas tachadas; lista de aristas del MST y peso total W siempre a la vista.
 - Aristas del MST en verde, descartadas punteadas. Si el grafo no es conexo, lo avisa y devuelve el árbol de la componente del vértice inicial.
+
+Kruskal además:
+- Mismo formato de grafo con pesos que Prim, sin vértice inicial; a igual peso, las aristas se extraen en el orden en que se declararon.
+- Cola de prioridad con todas las aristas a la vista: las ya extraídas quedan marcadas como aceptadas o tachadas (descartadas).
+- Union-Find ingenuo (`union(u, v)`: `padre[find(v)] ← find(u)`) mostrado como vector `padre[]` y como bosque de padres, con el camino de cada `find` y el `padre[]` que cambia en cada `union` resaltados. En el grafo, los vértices de un mismo subárbol comparten color.
+- Tabla de seguimiento (Iteración | Arista aᵢ | w(aᵢ) | find(u) / find(v) | Subárboles | W(MST)), con las aristas descartadas como filas tachadas. Si el grafo no es conexo, devuelve un bosque.
 
 El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
 - Mismo formato de texto (`A-B` o `A-B:costo`, el costo es texto libre y opcional), dirigido o no dirigido, nodos arrastrables con las aristas siguiéndolos en vivo.
