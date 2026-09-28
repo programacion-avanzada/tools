@@ -41,7 +41,7 @@
     .pseudo-code { font-family: Consolas, monospace; font-size: .72rem; white-space: pre; padding: .25rem 0; }
     .pseudo-line { padding: 0 .5rem; min-height: 1.1em; }
     .pseudo-diff { background: var(--bs-success-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
-    .history-list { max-height: 260px; overflow-y: auto; }
+    .history-list { max-height: 160px; overflow-y: auto; }
     @media (max-width: 768px) {
       #app { height: auto; }
       .main-row { flex-direction: column; }
@@ -56,7 +56,7 @@
   <nav class="navbar navbar-dark bg-dark px-3">
     <span class="navbar-brand mb-0 h5">🧩 Union-Find — Comparación de variantes</span>
     <div class="d-flex align-items-center gap-2 flex-wrap">
-      <span class="badge bg-secondary">Union-Find · N = {{ n }}</span>
+      <span class="badge bg-secondary">Union-Find · N = {{ names.length }}</span>
       <div class="btn-group btn-group-sm">
         <button class="btn btn-outline-light" @click="restartAnimation" title="Volver al estado inicial">⏮</button>
         <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Operación anterior">⏪</button>
@@ -65,7 +65,7 @@
       </div>
       <input type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
         v-model.number="speedMs" title="Velocidad de reproducción" />
-      <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="toggleEditor" title="Editar N y la secuencia de operaciones">✏️ Secuencia</button>
+      <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="toggleEditor" title="Editar los elementos y la secuencia de operaciones">✏️ Secuencia</button>
       <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver a la secuencia de ejemplo">
         {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
       </button>
@@ -85,19 +85,19 @@
           <span class="badge bg-primary ms-auto" title="Accesos a id[]/sz[] acumulados">Σ {{ vs.total }} accesos</span>
         </div>
         <div class="card-body p-2">
-          <span class="badge text-wrap mb-2 d-inline-block text-start" :class="currentStep.op ? 'bg-info text-dark' : 'bg-secondary'">{{ vs.text }}</span>
+          <span class="badge text-wrap mb-2 d-inline-block text-start" :class="vs.connected ? 'bg-success' : currentStep.op ? 'bg-info text-dark' : 'bg-secondary'">{{ vs.text }}</span>
           <div class="d-flex flex-wrap gap-2 align-items-start">
             <div>
               <table class="table table-sm table-bordered text-center mb-2 mini-table small" style="width: auto;">
                 <tbody>
                   <tr>
                     <th class="dp-header-cell">i</th>
-                    <th class="dp-header-cell" v-for="(_, i) in vs.id" :key="i">{{ i }}</th>
+                    <th class="dp-header-cell" v-for="(_, i) in vs.id" :key="i">{{ names[i] }}</th>
                   </tr>
                   <tr>
                     <th class="dp-header-cell">id[i]</th>
                     <td v-for="(v, i) in vs.id" :key="i" :class="cellClass(vs, 'id', i)"
-                      :title="v === i ? `${i} es raíz` : ''">{{ v }}</td>
+                      :title="v === i ? `${names[i]} es raíz` : ''">{{ names[v] }}</td>
                   </tr>
                   <tr v-if="variant.weighted">
                     <th class="dp-header-cell">sz[i]</th>
@@ -116,7 +116,7 @@
                   :x1="l.x1" :y1="l.y1" :x2="l.x2" :y2="l.y2" :marker-end="`url(#uf-arrow-${k})`" />
                 <g v-for="nd in forest.nodes" :key="nd.label">
                   <circle :cx="nd.x" :cy="nd.y" :r="UF_R" class="uf-node" :class="{ 'on-path': onPath(vs, nd.label) }" />
-                  <text :x="nd.x" :y="nd.y" class="uf-label" text-anchor="middle" dominant-baseline="central">{{ nd.label }}</text>
+                  <text :x="nd.x" :y="nd.y" class="uf-label" text-anchor="middle" dominant-baseline="central">{{ names[nd.label] }}</text>
                 </g>
               </svg>
             </div>
@@ -129,10 +129,12 @@
 
       <div class="card shadow-sm editor-panel" v-if="showEditor">
         <div class="card-body p-2">
-          <label class="form-label small text-muted mb-1">Cantidad de elementos (0 a N − 1)</label>
-          <input type="number" class="form-control form-control-sm mb-2" min="1" :max="MAX_N" v-model.number="nDraft" />
           <label class="form-label small text-muted mb-1">
-            Operaciones, una por línea o separadas por coma: <code>4-3</code> = union(4, 3), <code>?9</code> = find(9).
+            Elementos: un número N (= 0 a N − 1) o nombres separados por coma o espacio. Los que aparezcan en las operaciones se suman solos.
+          </label>
+          <input type="text" class="form-control form-control-sm mb-2" v-model="elemsDraft" style="font-family: monospace" />
+          <label class="form-label small text-muted mb-1">
+            Operaciones, una por línea o separadas por coma: <code>a-b</code> = union(a, b), <code>?a</code> = find(a), <code>a?b</code> = connected(a, b), <code>#</code> = count().
           </label>
           <textarea class="form-control form-control-sm mb-2" rows="6" v-model="opsDraft" style="font-family: monospace"></textarea>
           <div class="alert alert-danger small py-1 px-2 mb-2" v-if="editorError">{{ editorError }}</div>
@@ -147,13 +149,15 @@
           <div class="card-header fw-semibold">➕ Nueva operación</div>
           <div class="card-body">
             <div class="d-flex gap-2 mb-2">
-              <input type="number" class="form-control form-control-sm" min="0" :max="n - 1" v-model.number="liveP" placeholder="p" title="p" />
-              <input type="number" class="form-control form-control-sm" min="0" :max="n - 1" v-model.number="liveQ" placeholder="q" title="q"
+              <input type="text" class="form-control form-control-sm" v-model.trim="liveP" placeholder="p" title="p" />
+              <input type="text" class="form-control form-control-sm" v-model.trim="liveQ" placeholder="q" title="q"
                 @keyup.enter="addOp('union')" />
             </div>
-            <div class="d-flex gap-2">
-              <button class="btn btn-dark btn-sm flex-fill" @click="addOp('union')">union(p, q)</button>
-              <button class="btn btn-outline-secondary btn-sm flex-fill" @click="addOp('find')">find(p)</button>
+            <div class="d-grid gap-2">
+              <button class="btn btn-dark btn-sm" @click="addOp('union')">union(p, q)</button>
+              <button class="btn btn-outline-secondary btn-sm" @click="addOp('find')">find(p)</button>
+              <button class="btn btn-outline-secondary btn-sm" @click="addOp('connected')">connected(p, q)</button>
+              <button class="btn btn-outline-secondary btn-sm" @click="addOp('count')">count()</button>
             </div>
             <div class="alert alert-danger small py-1 px-2 mt-2 mb-0" v-if="liveError">{{ liveError }}</div>
           </div>
@@ -218,9 +222,10 @@
 const { createApp, ref, computed, onBeforeUnmount, nextTick } = Vue;
 
 // Ejemplo de Sedgewick (Algorithms 4ª ed., §1.5, tinyUF.txt) más dos finds para ver la compresión.
-const DEFAULT_N = 10;
+const DEFAULT_ELEMS = '10';
 const DEFAULT_OPS_TEXT = '4-3\n3-8\n6-5\n9-4\n2-1\n8-9\n5-0\n7-2\n6-1\n1-0\n6-7\n?4\n?7';
 // ponytail: tope de N para que los 4 bosques entren en la grilla; subirlo si hace falta.
+// Los nombres de más de 2 caracteres no entran en el círculo del bosque (UF_R).
 const MAX_N = 20;
 
 // Bosque: radio de nodo y separación entre hojas / niveles (px).
@@ -252,7 +257,7 @@ function halvingFind(ds, p, log) {
   let parent;
   while ((parent = rd(ds, 'id', p, log)) !== p) {
     const grand = rd(ds, 'id', parent, log);
-    if (grand !== parent) relinks.push(`id[${p}] ← ${grand}`);
+    if (grand !== parent) relinks.push(`id[${log.L[p]}] ← ${log.L[grand]}`);
     wr(ds, 'id', p, grand, log);
     p = grand;
     path.push(p);
@@ -260,8 +265,8 @@ function halvingFind(ds, p, log) {
   log.paths.push(path);
   return { root: p, path, relinks };
 }
-function describeFind(p, f) {
-  const base = f.path.length === 1 ? `find(${p}) = ${p}: es raíz.` : `find(${p}): ${f.path.join(' → ')}, raíz ${f.root}.`;
+function describeFind(p, f, L) {
+  const base = f.path.length === 1 ? `find(${L[p]}) = ${L[p]}: es raíz.` : `find(${L[p]}): ${f.path.map(x => L[x]).join(' → ')}, raíz ${L[f.root]}.`;
   return base + (f.relinks.length ? ` Compresión: ${f.relinks.join(', ')}.` : '');
 }
 
@@ -270,24 +275,34 @@ function quickUnion(find) {
     const a = find(ds, p, log), b = find(ds, q, log);
     const comp = [...a.relinks, ...b.relinks];
     const compText = comp.length ? ` Compresión: ${comp.join(', ')}.` : '';
-    const i = a.root, j = b.root;
-    if (i === j) return `union(${p}, ${q}): raíz(${p}) = raíz(${q}) = ${i}, ya están conectados.${compText}`;
+    const i = a.root, j = b.root, L = log.L;
+    if (i === j) return `union(${L[p]}, ${L[q]}): raíz(${L[p]}) = raíz(${L[q]}) = ${L[i]}, ya están conectados.${compText}`;
+    ds.count--;
     if (!this.weighted) {
       wr(ds, 'id', i, j, log);
-      return `union(${p}, ${q}): raíz(${p}) = ${i}, raíz(${q}) = ${j} → id[${i}] ← ${j}.${compText}`;
+      return `union(${L[p]}, ${L[q]}): raíz(${L[p]}) = ${L[i]}, raíz(${L[q]}) = ${L[j]} → id[${L[i]}] ← ${L[j]}.${compText}`;
     }
     // Igual que el libro: si sz[i] < sz[j] cuelga i de j; si no (incluido el empate), j de i.
     const si = rd(ds, 'sz', i, log), sj = rd(ds, 'sz', j, log);
     const [small, big] = si < sj ? [i, j] : [j, i];
     wr(ds, 'id', small, big, log);
     wr(ds, 'sz', big, si + sj, log);
-    return `union(${p}, ${q}): raíz(${p}) = ${i} (sz ${si}), raíz(${q}) = ${j} (sz ${sj}) → el más chico cuelga del más grande: id[${small}] ← ${big}, sz[${big}] = ${si + sj}.${compText}`;
+    return `union(${L[p]}, ${L[q]}): raíz(${L[p]}) = ${L[i]} (sz ${si}), raíz(${L[q]}) = ${L[j]} (sz ${sj}) → el más chico cuelga del más grande: id[${L[small]}] ← ${L[big]}, sz[${L[big]}] = ${si + sj}.${compText}`;
   };
 }
 
+function describeConnected(p, q, a, b, log) {
+  const L = log.L;
+  log.connected = a.root === b.root;
+  const comp = [...a.relinks, ...b.relinks];
+  const verdict = a.root === b.root ? `misma raíz ${L[a.root]} → conectados.` : `raíz(${L[p]}) = ${L[a.root]} ≠ raíz(${L[q]}) = ${L[b.root]} → no conectados.`;
+  return `connected(${L[p]}, ${L[q]}): ${verdict}` + (comp.length ? ` Compresión: ${comp.join(', ')}.` : '');
+}
+
 // Pseudocódigo estático de cada variante; las líneas con "+" cambian respecto de la variante anterior.
+// connected y count son iguales en todas: comparan las raíces que devuelve find / devuelven el contador.
 function pseudo(src) {
-  return src.trim().split('\n').map(l => ({ text: l.replace(/^\+/, ''), diff: l.startsWith('+') }));
+  return (src.trim() + '\n\nALGORITMO connected(p, q)\n    RETORNAR find(p) = find(q)\n\nALGORITMO count()\n    RETORNAR count').split('\n').map(l => ({ text: l.replace(/^\+/, ''), diff: l.startsWith('+') }));
 }
 
 const VARIANTS = [
@@ -305,6 +320,7 @@ ALGORITMO union(p, q)
     PARA CADA i EN 0..N-1 HACER
         SI id[i] = pid ENTONCES
             id[i] ← qid
+    count ← count - 1
 `),
     find(ds, p, log) {
       const root = rd(ds, 'id', p, log);
@@ -313,13 +329,14 @@ ALGORITMO union(p, q)
       return { root, path, relinks: [] };
     },
     union(ds, p, q, log) {
-      const pid = this.find(ds, p, log).root, qid = this.find(ds, q, log).root;
-      if (pid === qid) return `union(${p}, ${q}): id[${p}] = id[${q}] = ${pid}, ya están conectados.`;
+      const pid = this.find(ds, p, log).root, qid = this.find(ds, q, log).root, L = log.L;
+      if (pid === qid) return `union(${L[p]}, ${L[q]}): id[${L[p]}] = id[${L[q]}] = ${L[pid]}, ya están conectados.`;
+      ds.count--;
       let changed = 0;
       for (let i = 0; i < ds.id.length; i++) {
         if (rd(ds, 'id', i, log) === pid) { wr(ds, 'id', i, qid, log); changed++; }
       }
-      return `union(${p}, ${q}): se recorren los ${ds.id.length} elementos y ${changed === 1 ? 'el único' : `los ${changed}`} con id = ${pid} pasa${changed === 1 ? '' : 'n'} a ${qid}.`;
+      return `union(${L[p]}, ${L[q]}): se recorren los ${ds.id.length} elementos y ${changed === 1 ? 'el único' : `los ${changed}`} con id = ${L[pid]} pasa${changed === 1 ? '' : 'n'} a ${L[qid]}.`;
     },
   },
   {
@@ -336,6 +353,7 @@ ALGORITMO union(p, q)
     SI i = j ENTONCES
         RETORNAR
 +    id[i] ← j
+    count ← count - 1
 `),
   },
   {
@@ -357,6 +375,7 @@ ALGORITMO union(p, q)
 +    SINO
 +        id[j] ← i
 +        sz[i] ← sz[i] + sz[j]
+    count ← count - 1
 `),
   },
   {
@@ -379,23 +398,45 @@ ALGORITMO union(p, q)
     SINO
         id[j] ← i
         sz[i] ← sz[i] + sz[j]
+    count ← count - 1
 `),
   },
 ];
 
-// ── Parseo: "p-q" = union(p, q), "?p" = find(p), una por línea o separadas por coma.
-function parseOps(text, n) {
+// ── Parseo: "p-q" = union(p, q), "?p" = find(p), "p?q" = connected(p, q), "#" = count(), una por línea o separadas por coma.
+// Los elementos son nombres alfanuméricos; las operaciones los guardan como texto.
+function parseOps(text) {
   const ops = [];
   for (const tok of text.split(/[\n,]/).map(t => t.trim()).filter(Boolean)) {
     let m;
-    if ((m = tok.match(/^(\d+)\s*-\s*(\d+)$/))) ops.push({ type: 'union', p: +m[1], q: +m[2] });
-    else if ((m = tok.match(/^\?\s*(\d+)$/))) ops.push({ type: 'find', p: +m[1] });
-    else return { error: `No se entiende "${tok}": usá "p-q" para union o "?p" para find.` };
-    if (m.slice(1).some(x => x !== undefined && +x >= n)) return { error: `"${tok}": los elementos van de 0 a ${n - 1}.` };
+    if (tok === '#') ops.push({ type: 'count' });
+    else if ((m = tok.match(/^(\w+)\s*-\s*(\w+)$/))) ops.push({ type: 'union', p: m[1], q: m[2] });
+    else if ((m = tok.match(/^\?\s*(\w+)$/))) ops.push({ type: 'find', p: m[1] });
+    else if ((m = tok.match(/^(\w+)\s*\?\s*(\w+)$/))) ops.push({ type: 'connected', p: m[1], q: m[2] });
+    else return { error: `No se entiende "${tok}": usá "p-q" para union, "?p" para find, "p?q" para connected o "#" para count.` };
   }
   return { ops };
 }
-function opLabel(op) { return op.type === 'union' ? `union(${op.p}, ${op.q})` : `find(${op.p})`; }
+
+// Copiada de dijkstra.html: numérico si todas son números, si no lexicográfico.
+function sortLabels(labels) {
+  const allNumeric = labels.every(l => l.trim() !== '' && !isNaN(l));
+  return [...labels].sort(allNumeric
+    ? (a, b) => Number(a) - Number(b)
+    : (a, b) => a.localeCompare(b, 'es'));
+}
+
+// Elementos = los declarados ("10" = 0..9, o una lista de nombres) más los que usan las operaciones, ordenados.
+function elementNames(elemsText, ops) {
+  const t = elemsText.trim();
+  const declared = /^\d+$/.test(t) ? [...Array(+t).keys()].map(String) : t.split(/[\s,]+/).filter(Boolean);
+  const bad = declared.find(x => !/^\w+$/.test(x));
+  if (bad) throw new Error(`"${bad}" no es un nombre válido: usá letras, números o _.`);
+  const names = sortLabels([...new Set([...declared, ...ops.flatMap(op => [op.p, op.q].filter(Boolean))])]);
+  if (!names.length || names.length > MAX_N) throw new Error(`Tiene que haber entre 1 y ${MAX_N} elementos (hay ${names.length}).`);
+  return names;
+}
+function opLabel(op) { return `${op.type}(${[op.p, op.q].filter(Boolean).join(', ')})`; }
 
 function forestHeight(id) {
   let h = 0;
@@ -408,15 +449,16 @@ function forestHeight(id) {
 }
 
 // ── Corre las operaciones una vez sobre las 4 variantes y guarda un snapshot por operación.
-function computeSteps(n, ops) {
-  const states = VARIANTS.map(() => ({ id: [...Array(n).keys()], sz: Array(n).fill(1), total: 0 }));
+function computeSteps(names, ops) {
+  const n = names.length, index = new Map(names.map((l, i) => [l, i]));
+  const states = VARIANTS.map(() => ({ id: [...Array(n).keys()], sz: Array(n).fill(1), total: 0, count: n }));
   const steps = [];
   function snapshot(op, logs) {
     steps.push({
       op,
       variants: states.map((ds, k) => {
         const log = logs ? logs[k] : { acc: 0, paths: [], written: { id: [], sz: [] }, text: 'Estado inicial: id[i] = i, cada elemento es su propia raíz.' };
-        return { id: [...ds.id], sz: [...ds.sz], paths: log.paths, written: log.written, acc: log.acc, total: ds.total, height: forestHeight(ds.id), text: log.text };
+        return { id: [...ds.id], sz: [...ds.sz], paths: log.paths, written: log.written, acc: log.acc, total: ds.total, height: forestHeight(ds.id), text: log.text, connected: log.connected };
       }),
     });
   }
@@ -424,8 +466,12 @@ function computeSteps(n, ops) {
   for (const op of ops) {
     const logs = VARIANTS.map((variant, k) => {
       const ds = states[k];
-      const log = { acc: 0, paths: [], written: { id: [], sz: [] } };
-      const text = op.type === 'union' ? variant.union(ds, op.p, op.q, log) : describeFind(op.p, variant.find(ds, op.p, log));
+      const log = { acc: 0, paths: [], written: { id: [], sz: [] }, L: names };
+      const p = index.get(op.p), q = index.get(op.q);
+      const text = op.type === 'union' ? variant.union(ds, p, q, log)
+        : op.type === 'count' ? `count() = ${ds.count}: ${ds.count === 1 ? 'queda 1 componente' : `quedan ${ds.count} componentes`}.`
+        : op.type === 'connected' ? describeConnected(p, q, variant.find(ds, p, log), variant.find(ds, q, log), log)
+        : describeFind(p, variant.find(ds, p, log), names);
       log.text = `${text} (${plural(log.acc, 'acceso')})`;
       ds.total += log.acc;
       return log;
@@ -471,20 +517,21 @@ createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-grafos-union-find';
 
-    const n = ref(DEFAULT_N);
+    const elems = ref(DEFAULT_ELEMS);
+    const names = ref([]);
     const opsText = ref(DEFAULT_OPS_TEXT);
-    const steps = ref(computeSteps(DEFAULT_N, parseOps(DEFAULT_OPS_TEXT, DEFAULT_N).ops));
+    const steps = ref([]);
     const currentStepIndex = ref(0);
     const isPlaying = ref(false);
     const speedMs = ref(700);
     let playTimer = null;
 
     const showEditor = ref(false);
-    const nDraft = ref(DEFAULT_N);
+    const elemsDraft = ref(DEFAULT_ELEMS);
     const opsDraft = ref(DEFAULT_OPS_TEXT);
     const editorError = ref('');
-    const liveP = ref(0);
-    const liveQ = ref(1);
+    const liveP = ref('');
+    const liveQ = ref('');
     const liveError = ref('');
 
     const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
@@ -511,26 +558,27 @@ createApp({
       };
     }
 
-    // ── Aplicar N + secuencia (lanza error si no es válida) ──
-    function applyOps(nVal, text) {
-      if (!Number.isInteger(nVal) || nVal < 1 || nVal > MAX_N) throw new Error(`N tiene que ser un entero entre 1 y ${MAX_N}.`);
-      const { ops, error } = parseOps(text, nVal);
+    // ── Aplicar elementos + secuencia (lanza error si no es válida) ──
+    function applyOps(elemsVal, text) {
+      const { ops, error } = parseOps(text);
       if (error) throw new Error(error);
-      n.value = nVal;
+      names.value = elementNames(elemsVal, ops);
+      elems.value = elemsVal;
       opsText.value = text;
-      nDraft.value = nVal;
+      elemsDraft.value = elemsVal;
       opsDraft.value = text;
-      steps.value = computeSteps(nVal, ops);
+      steps.value = computeSteps(names.value, ops);
       stopAutoplay();
       currentStepIndex.value = 0;
     }
 
     // ── Persistencia ──
     function currentState() {
-      return { n: n.value, opsText: opsText.value };
+      return { elems: elems.value, opsText: opsText.value };
     }
     function applyState(data) {
-      applyOps(data.n ?? n.value, data.opsText ?? opsText.value);
+      // "n" es el formato viejo (solo N numérico).
+      applyOps(data.elems ?? (data.n != null ? String(data.n) : elems.value), data.opsText ?? opsText.value);
     }
     function persist() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
@@ -581,26 +629,26 @@ createApp({
       newConfirm.value = false;
       editorError.value = '';
       liveError.value = '';
-      applyState({ n: DEFAULT_N, opsText: DEFAULT_OPS_TEXT });
+      applyState({ elems: DEFAULT_ELEMS, opsText: DEFAULT_OPS_TEXT });
       persist();
     }
 
     // ── Editar secuencia / operación en vivo ──
     function toggleEditor() {
       showEditor.value = !showEditor.value;
-      nDraft.value = n.value;
+      elemsDraft.value = elems.value;
       opsDraft.value = opsText.value;
       editorError.value = '';
     }
     function applyEditor() {
-      try { applyOps(nDraft.value, opsDraft.value); } catch (e) { editorError.value = e.message; return; }
+      try { applyOps(elemsDraft.value, opsDraft.value); } catch (e) { editorError.value = e.message; return; }
       editorError.value = '';
       persist();
     }
     function addOp(type) {
-      const tok = type === 'union' ? `${liveP.value}-${liveQ.value}` : `?${liveP.value}`;
+      const tok = { union: `${liveP.value}-${liveQ.value}`, connected: `${liveP.value}?${liveQ.value}`, find: `?${liveP.value}`, count: '#' }[type];
       const base = opsText.value.trim();
-      try { applyOps(n.value, base ? `${base}\n${tok}` : tok); } catch (e) { liveError.value = e.message; return; }
+      try { applyOps(elems.value, base ? `${base}\n${tok}` : tok); } catch (e) { liveError.value = e.message; return; }
       liveError.value = '';
       persist();
       goToStep(steps.value.length - 1);
@@ -640,11 +688,11 @@ createApp({
     onBeforeUnmount(stopAutoplay);
 
     return {
-      VARIANTS, MAX_N, UF_R, n, opLabel,
+      VARIANTS, UF_R, names, opLabel,
       steps, currentStepIndex, currentStep, isAtEnd, panels,
       onPath, cellClass, linkClass,
       isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation, goToStep,
-      showEditor, toggleEditor, nDraft, opsDraft, editorError, applyEditor,
+      showEditor, toggleEditor, elemsDraft, opsDraft, editorError, applyEditor,
       liveP, liveQ, liveError, addOp,
       newConfirm, handleNewClick, shareCopied, shareCurrentState,
       isDark, toggleTheme,
