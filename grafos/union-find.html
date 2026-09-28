@@ -24,6 +24,9 @@
     .grid-wrap { flex: 3 1 0; position: relative; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: .5rem; padding: .5rem; }
     .quadrant { min-height: 0; min-width: 0; }
     .quadrant .card-body { overflow: auto; }
+    /* Foco: una sola variante ocupa toda la grilla, más grande. */
+    .grid-wrap.focus-one { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+    .focus-one .quadrant .card-body { zoom: 1.7; }
     .side-panel { flex: 0 0 290px; overflow-y: auto; border-left: 1px solid var(--bs-border-color); }
     .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
     .editor-panel { position: absolute; bottom: 1rem; left: 1rem; width: 320px; max-width: calc(100% - 2rem); z-index: 10; }
@@ -77,12 +80,14 @@
   </nav>
 
   <div class="main-row">
-    <div class="grid-wrap">
-      <div class="card quadrant" v-for="({ variant, vs, forest }, k) in panels" :key="variant.name">
+    <div class="grid-wrap" :class="{ 'focus-one': focused !== null }">
+      <div class="card quadrant" v-for="({ variant, vs, forest }, k) in panels" :key="variant.name" v-show="focused === null || focused === k">
         <div class="card-header py-1 px-2 small d-flex align-items-center gap-2 flex-wrap">
           <span class="fw-semibold">{{ variant.name }}</span>
           <span class="badge bg-secondary">{{ variant.cost }}</span>
           <span class="badge bg-primary ms-auto" title="Accesos a id[]/sz[] acumulados">Σ {{ vs.total }} accesos</span>
+          <button class="btn btn-sm btn-outline-secondary py-0 px-1" @click="focused = focused === k ? null : k"
+            :title="focused === k ? 'Volver a ver las 4 variantes' : 'Ver solo esta variante, más grande'">{{ focused === k ? '✖' : '🔍' }}</button>
         </div>
         <div class="card-body p-2">
           <span class="badge text-wrap mb-2 d-inline-block text-start" :class="vs.connected ? 'bg-success' : currentStep.op ? 'bg-info text-dark' : 'bg-secondary'">{{ vs.text }}</span>
@@ -533,6 +538,7 @@ createApp({
     const liveP = ref('');
     const liveQ = ref('');
     const liveError = ref('');
+    const focused = ref(null);
 
     const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
 
@@ -689,7 +695,7 @@ createApp({
 
     return {
       VARIANTS, UF_R, names, opLabel,
-      steps, currentStepIndex, currentStep, isAtEnd, panels,
+      steps, currentStepIndex, currentStep, isAtEnd, panels, focused,
       onPath, cellClass, linkClass,
       isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation, goToStep,
       showEditor, toggleEditor, elemsDraft, opsDraft, editorError, applyEditor,

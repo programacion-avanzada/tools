@@ -104,6 +104,7 @@ El comparador de Union-Find no dibuja grafos: corre la misma secuencia de operac
 - Elementos `0..N−1` o con nombres alfanuméricos (ordenados; los que aparecen en las operaciones se agregan solos). Operaciones en vivo (`union(p, q)` / `find(p)` / `connected(p, q)` / `count()`) o como secuencia de texto (`4-3` = union, `?9` = find, `4?3` = connected, `#` = count); cada operación es un paso del historial, navegable como el resto de las herramientas.
 - Cada variante muestra `id[]` (y `sz[]` en las weighted), su bosque, el camino que recorrió `find`, las celdas que cambiaron y una explicación de lo que hizo. `union(p, q)` sigue la convención del libro: `id[find(p)] ← find(q)`; en las weighted, el árbol más chico cuelga del más grande (si empatan, el de q cuelga del de p). La compresión es por *halving*: `id[p] ← id[id[p]]`.
 - Pseudocódigo de `find`, `union`, `connected` y `count` de cada variante (count con el contador de Sedgewick, que `union` decrementa), con las líneas que cambian respecto de la variante anterior resaltadas.
+- Botón 🔍 en cada variante para verla sola, a todo el espacio y al 170% (✖ vuelve a las cuatro).
 - Tabla comparativa con los accesos a `id[]`/`sz[]` (última operación y acumulado) y la altura máxima del bosque de cada variante.
 
 El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
