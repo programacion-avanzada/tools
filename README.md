@@ -72,6 +72,7 @@ El Teorema Maestro analiza recurrencias por división T(n) = a·T(n/b) + O(n^c):
 | [`grafos/dijkstra.html`](grafos/dijkstra.html) | Dijkstra — Caminos Mínimos (cola de prioridad) | O((V+E)·log V) |
 | [`grafos/prim.html`](grafos/prim.html) | Prim — Árbol de Expansión Mínima (cola de prioridad de aristas) | O(E·log E) |
 | [`grafos/kruskal.html`](grafos/kruskal.html) | Kruskal — Árbol de Expansión Mínima (cola de aristas + Union-Find) | O(E·log E) |
+| [`grafos/coloreo.html`](grafos/coloreo.html) | Coloreo de Grafos — Secuencial greedy (orden natural, Welsh-Powell, Matula), por vértice o por color | O(V·log V + E) / O(V·log V + χ·(V+E)) |
 | [`grafos/union-find.html`](grafos/union-find.html) | Union-Find — Comparación de variantes (quick-find, quick-union, weighted, path halving) | — |
 
 DFS, BFS, Dijkstra y Prim permiten:

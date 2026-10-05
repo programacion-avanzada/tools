@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coloreo de Grafos — Secuencial greedy</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .main-row { flex: 1 1 auto; display: flex; min-height: 0; }
+    .left-col { flex: 2 1 0; display: flex; flex-direction: column; min-width: 0; }
+    .top-row { flex: 1 1 65%; display: flex; min-height: 0; }
+    .canvas-wrap { flex: 1 1 0; position: relative; overflow: hidden; min-width: 0; }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    .data-panel { flex: 0 1 auto; max-width: 45%; overflow: auto; border-left: 1px solid var(--bs-border-color); padding: .5rem; }
+    .trace-wrap { flex: 1 1 35%; overflow: auto; border-top: 1px solid var(--bs-border-color); padding: .5rem; }
+    .code-panel { flex: 1 1 0; overflow-y: auto; border-left: 1px solid var(--bs-border-color); min-width: 300px; }
+    .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
+    .empty-state-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .editor-panel { position: absolute; bottom: .75rem; left: .75rem; width: 300px; max-width: calc(100% - 1.5rem); }
+    .pseudo-code { font-family: Consolas, monospace; font-size: .8rem; white-space: pre; padding: .5rem 0; overflow-x: auto; }
+    .pseudo-line { padding: .1rem .75rem; min-height: 1.2em; }
+    .pseudo-active { background: var(--bs-warning-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .mini-table td, .mini-table th { padding: .15rem .5rem; }
+    .row-open > td { background-color: var(--bs-warning-bg-subtle) !important; }
+    .cell-current { background-color: var(--bs-warning-bg-subtle) !important; }
+    .cell-neighbor { background-color: var(--bs-info-bg-subtle) !important; }
+    /* Chip de color: el número siempre visible, así dos colores parecidos no se confunden. */
+    .color-chip { display: inline-block; min-width: 1.6em; padding: 0 .3em; border-radius: 1em; font-weight: 600; text-align: center; border: 1px solid var(--bs-border-color); }
+    .chip-tried { text-decoration: line-through; opacity: .6; }
+    .chip-chosen { outline: 2px solid var(--bs-success); outline-offset: 1px; }
+    @media (max-width: 768px) {
+      #app { height: auto; }
+      .main-row, .top-row { flex-direction: column; }
+      .canvas-wrap { flex: none; height: 320px; }
+      .data-panel { max-width: none; border-left: none; border-top: 1px solid var(--bs-border-color); }
+      .code-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand mb-0 h5">🎨 Coloreo de Grafos</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">Grafos · O({{ mode === 'secuencial' ? '' : 'V·log V + ' }}{{ strategy === 'color' ? 'χ·(V+E)' : 'V+E' }})</span>
+      <span class="badge bg-success" v-if="currentStep && currentStep.maxColor" title="Colores usados hasta este paso">{{ currentStep.maxColor }} color{{ currentStep.maxColor === 1 ? '' : 'es' }}</span>
+      <select class="form-select form-select-sm" style="width:auto" v-model="mode" @change="onModeChange" title="Orden en que se colorean los vértices">
+        <option v-for="(m, key) in MODES" :key="key" :value="key">{{ m.name }}</option>
+      </select>
+      <select class="form-select form-select-sm" style="width:auto" v-model="strategy" @change="onModeChange" title="Por vértice: cada vértice toma el menor color libre. Por color: con cada color se pinta todo lo que se pueda.">
+        <option v-for="(name, key) in STRATEGIES" :key="key" :value="key">{{ name }}</option>
+      </select>
+      <div class="btn-group btn-group-sm" v-if="nodes.length">
+        <button class="btn btn-outline-light" @click="restartAnimation" title="Reiniciar animación (mismo grafo)">⏮</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente">⏩</button>
+      </div>
+      <input v-if="nodes.length" type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
+        v-model.number="speedMs" title="Velocidad de reproducción" />
+      <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="showEditor = !showEditor" title="Editar el grafo">✏️ Editar grafo</button>
+      <button class="btn btn-sm btn-outline-light" @click="fitToView(true)" title="Ajustar vista" v-if="nodes.length">🎯</button>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver al grafo de ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir este grafo">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="main-row">
+    <div class="left-col">
+      <div class="top-row">
+        <div class="canvas-wrap" ref="containerEl">
+          <canvas
+            ref="canvasEl"
+            @mousedown="onCanvasMouseDown"
+            @mousemove="onCanvasMouseMove"
+            @mouseup="onCanvasMouseUp"
+            @mouseleave="onCanvasMouseUp"
+            @wheel.prevent="onCanvasWheel"
+          ></canvas>
+
+          <div class="empty-state-overlay" v-if="!nodes.length">
+            <div class="card shadow-sm" style="max-width: 380px;">
+              <div class="card-body text-center">
+                <div class="fs-1">🎨</div>
+                <p class="mt-2 mb-0 text-muted">Cargá un grafo con "✏️ Editar grafo" para empezar.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card shadow-sm editor-panel" v-if="showEditor">
+            <div class="card-body p-2">
+              <label class="form-label small text-muted mb-1">
+                Aristas, una por línea o separadas por coma: <code>A-B</code>. Nodo aislado: <code>G</code>.
+              </label>
+              <textarea class="form-control form-control-sm mb-2" rows="6" v-model="graphTextDraft" style="font-family: monospace"></textarea>
+              <button class="btn btn-dark btn-sm w-100" @click="applyGraphText">▶ Aplicar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="data-panel" v-if="nodes.length && currentStep">
+          <div class="card mb-2">
+            <div class="card-header py-1 px-2 small fw-semibold">🔢 orden</div>
+            <div class="card-body p-2" style="overflow-x: auto;">
+              <p class="text-muted small mb-0" v-if="!currentStep.orden.length">(todavía sin armar)</p>
+              <table class="table table-sm table-bordered text-center mb-0 mini-table small" style="width: auto;" v-else>
+                <tbody>
+                  <tr>
+                    <th class="dp-header-cell">i</th>
+                    <th class="dp-header-cell" v-for="(v, idx) in currentStep.orden" :key="idx">{{ idx }}</th>
+                  </tr>
+                  <tr>
+                    <th class="dp-header-cell">v</th>
+                    <td v-for="(v, idx) in currentStep.orden" :key="idx" :class="{ 'cell-current': idx === currentStep.i }">{{ v }}</td>
+                  </tr>
+                  <tr v-if="mode !== 'secuencial'">
+                    <th class="dp-header-cell" title="Grado: cantidad de adyacentes">grado</th>
+                    <td v-for="(g, idx) in degreeGroups" :key="idx" :colspan="g.span" class="text-muted">{{ g.degree }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card mb-2">
+            <div class="card-header py-1 px-2 small fw-semibold">🎨 colores</div>
+            <div class="card-body p-2" style="overflow-x: auto;">
+              <p class="text-muted small mb-0" v-if="!currentStep.colors">(todavía sin crear)</p>
+              <table class="table table-sm table-bordered text-center mb-0 mini-table small" style="width: auto;" v-else>
+                <tbody>
+                  <tr>
+                    <th class="dp-header-cell" v-for="l in sortedLabels" :key="l">{{ l }}</th>
+                  </tr>
+                  <tr>
+                    <td v-for="l in sortedLabels" :key="l"
+                      :class="{ 'cell-current': l === currentStep.current, 'cell-neighbor': l === currentStep.neighbor }">
+                      <span class="color-chip" :style="chipStyle(currentStep.colors[l])">{{ currentStep.colors[l] }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card" v-if="currentStep.passColor">
+            <div class="card-header py-1 px-2 small fw-semibold">🖌️ Pasada del color</div>
+            <div class="card-body p-2 small">
+              color = <span class="color-chip" :style="chipStyle(currentStep.passColor)">{{ currentStep.passColor }}</span>
+              <div class="mt-2">coloreados = {{ currentStep.coloreados }} / {{ currentStep.orden.length }}</div>
+            </div>
+          </div>
+
+          <div class="card" v-if="currentStep.usados">
+            <div class="card-header py-1 px-2 small fw-semibold">🚫 usados (adyacentes de {{ currentStep.current }})</div>
+            <div class="card-body p-2 small">
+              <div class="d-flex flex-wrap gap-1 align-items-center">
+                <span v-if="!currentStep.usados.length" class="text-muted">∅</span>
+                <span v-for="c in currentStep.usados" :key="c" class="color-chip" :style="chipStyle(c)">{{ c }}</span>
+              </div>
+              <div class="mt-2" v-if="currentStep.candidate">
+                color =
+                <span class="color-chip" :style="chipStyle(currentStep.candidate)"
+                  :class="{ 'chip-tried': currentStep.usados.includes(currentStep.candidate), 'chip-chosen': !currentStep.usados.includes(currentStep.candidate) }">{{ currentStep.candidate }}</span>
+                <span class="text-muted ms-1">{{ currentStep.usados.includes(currentStep.candidate) ? 'ya está en usados' : 'libre' }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="trace-wrap" v-if="nodes.length && currentStep && currentStep.rows.length">
+        <div class="card">
+          <div class="card-header py-1 px-2 small fw-semibold">📋 Seguimiento por iteración</div>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered text-center align-middle mb-0 small" v-if="strategy === 'color'">
+              <thead>
+                <tr>
+                  <th class="dp-header-cell" title="Color de la pasada">Color</th>
+                  <th class="dp-header-cell" title="Vértices que tomaron este color, en el orden en que se recorrieron">Vértices que lo tomaron</th>
+                  <th class="dp-header-cell" title="Vértices con color al terminar la pasada">coloreados</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in currentStep.rows" :key="idx" :class="{ 'row-open': row.color === currentStep.passColor }">
+                  <td><span class="color-chip" :style="chipStyle(row.color)">{{ row.color }}</span></td>
+                  <td class="fw-semibold">{{ row.taken.length ? row.taken.join(', ') : '—' }}</td>
+                  <td>{{ row.coloreados }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <table class="table table-sm table-bordered text-center align-middle mb-0 small" v-else>
+              <thead>
+                <tr>
+                  <th class="dp-header-cell">i</th>
+                  <th class="dp-header-cell" title="Vértice que se colorea: v = orden[i]">v</th>
+                  <th class="dp-header-cell" title="Cantidad de adyacentes de v">Grado</th>
+                  <th class="dp-header-cell" title="Colores de los adyacentes de v (0 = todavía sin color)">usados</th>
+                  <th class="dp-header-cell" title="Menor color que no está en usados">Color asignado</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in currentStep.rows" :key="idx" :class="{ 'row-open': row.color === null }">
+                  <td>{{ row.i }}</td>
+                  <td class="fw-semibold">{{ row.v }}</td>
+                  <td>{{ row.degree }}</td>
+                  <td class="text-start">
+                    <span v-if="!row.usados.length" class="text-muted">∅</span>
+                    <span v-for="c in row.usados" :key="c" class="color-chip me-1" :style="chipStyle(c)">{{ c }}</span>
+                  </td>
+                  <td><span v-if="row.color" class="color-chip" :style="chipStyle(row.color)">{{ row.color }}</span><span v-else>—</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-panel">
+      <div class="p-3">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">💻 Pseudocódigo</div>
+          <div class="card-body p-0">
+            <div class="pseudo-code">
+              <div v-for="(line, idx) in pseudocode" :key="idx" class="pseudo-line"
+                :class="{ 'pseudo-active': currentStep && currentStep.activeLines.includes(idx) }">{{ line }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">🔍 Explicación</div>
+          <div class="card-body">
+            <p class="text-muted text-center py-3 mb-0" v-if="!currentStep">Cargá un grafo y presioná ▶️ o "Paso siguiente" para empezar.</p>
+            <div v-else>
+              <span class="badge fs-6 text-wrap text-start" :class="currentStep.badge.cls">{{ currentStep.badge.icon }} {{ currentStep.badge.text }}</span>
+            </div>
+            <p class="small text-muted mt-3 mb-0" v-if="currentStep">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header fw-semibold">Leyenda</div>
+          <ul class="list-group list-group-flush small">
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-warning text-dark">&nbsp;&nbsp;</span> v: vértice que se está coloreando</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-info text-dark">&nbsp;&nbsp;</span> u: adyacente de v que se está mirando</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge border text-body">- - -</span> Adyacente de v ya mirado</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="color-chip" :style="chipStyle(0)">0</span> Sin color todavía</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="color-chip" :style="chipStyle(1)">1</span> El número es el color (a partir del 9 son colores generados)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar text-center small border-top">
+    <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } = Vue;
+
+// Función principal de cada modo: solo cambia cómo se arma "orden".
+const MODES = {
+  secuencial: {
+    name: 'Secuencial',
+    main: [
+      'ALGORITMO ColoreoSecuencial(arreglo ady)',
+      '    n ← |ady|',
+      '    PARA i = 0 HASTA n - 1 HACER',
+      '        orden[i] ← i',
+      '    RETORNAR colorearEnOrden(ady, orden)',
+    ],
+  },
+  welsh: {
+    name: 'Welsh-Powell',
+    main: [
+      'ALGORITMO ColoreoWelshPowell(arreglo ady)',
+      '    orden ← ordenarPorGradoDecreciente(ady)',
+      '    RETORNAR colorearEnOrden(ady, orden)',
+    ],
+  },
+  matula: {
+    name: 'Matula',
+    main: [
+      'ALGORITMO ColoreoMatula(arreglo ady)',
+      '    orden ← ordenarPorGradoCreciente(ady)',
+      '    RETORNAR colorearEnOrden(ady, orden)',
+    ],
+  },
+};
+const STRATEGIES = { vertice: 'Por vértice', color: 'Por color' };
+// Funciones de soporte, comunes a los tres modos (van debajo de la principal); cambian según la estrategia.
+const COMMON_CODE = {
+  vertice: [
+    'ALGORITMO colorearEnOrden(arreglo ady, arreglo orden)',
+    '    n ← |ady|',
+    '    colores ← {0} * n',
+    '',
+    '    PARA i = 0 HASTA n - 1 HACER',
+    '        v ← orden[i]',
+    '        colores[v] ← menorColorDisponible(ady, colores, v)',
+    '',
+    '    RETORNAR colores',
+    '',
+    'ALGORITMO menorColorDisponible(arreglo ady, arreglo colores, elemento v)',
+    '    usados ← { colores[u] : u ∈ ady[v] }',
+    '    color ← 1',
+    '    MIENTRAS color ∈ usados HACER',
+    '        color ← color + 1',
+    '',
+    '    RETORNAR color',
+  ],
+  color: [
+    'ALGORITMO colorearEnOrden(arreglo ady, arreglo orden)',
+    '    n ← |ady|',
+    '    colores ← {0} * n',
+    '    coloreados ← 0',
+    '    color ← 0',
+    '    MIENTRAS coloreados < n HACER',
+    '        color ← color + 1',
+    '        PARA i = 0 HASTA n - 1 HACER',
+    '            v ← orden[i]',
+    '            SI colores[v] = 0 Y puedeUsar(ady, colores, v, color) ENTONCES',
+    '                colores[v] ← color',
+    '                coloreados ← coloreados + 1',
+    '',
+    '    RETORNAR colores',
+    '',
+    'ALGORITMO puedeUsar(arreglo ady, arreglo colores, elemento v, entero color)',
+    '    PARA CADA u ∈ ady[v] HACER',
+    '        SI colores[u] = color ENTONCES RETORNAR falso',
+    '    RETORNAR verdadero',
+  ],
+};
+function pseudocodeFor(mode, strategy) { return [...MODES[mode].main, '', ...COMMON_CODE[strategy]]; }
+
+// Grafo de ejemplo: contiene un K4 (3, 4, 5, 7), así que hacen falta 4 colores.
+// Welsh-Powell llega a 4; Secuencial y Matula usan 5.
+const DEFAULT_GRAPH_TEXT = '1-3\n2-4\n2-5\n3-4\n3-5\n3-7\n4-5\n4-7\n5-7\n6-7';
+
+// Colores de acento del tema Dracula (https://draculatheme.com/contribute), igual que grafos/editor.html.
+const DRACULA = [
+  { name: 'cyan', hex: '#8be9fd' }, { name: 'verde', hex: '#50fa7b' }, { name: 'naranja', hex: '#ffb86c' },
+  { name: 'rosa', hex: '#ff79c6' }, { name: 'violeta', hex: '#bd93f9' }, { name: 'rojo', hex: '#ff5555' },
+  { name: 'amarillo', hex: '#f1fa8c' }, { name: 'gris azulado', hex: '#6272a4' },
+];
+// Mismo color con menos brillo (R, G y B escalados por igual: conserva el tono), para el borde de un nodo pintado.
+function darken(hex, factor = 0.7) {
+  return '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * factor).toString(16).padStart(2, '0')).join('');
+}
+// Texto oscuro o claro (también de Dracula) según la luminancia relativa del fondo (WCAG).
+function textColorOn(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? '#282a36' : '#f8f8f2';
+}
+// Color k (k ≥ 1): los 8 de Dracula y, si hacen falta más, uno "al azar" pero fijo para cada k
+// (hash de k → tono), así no cambia al avanzar/retroceder ni al compartir. Puede parecerse a otro: por eso
+// el número del color se muestra siempre.
+function colorHex(k) {
+  if (k <= DRACULA.length) return DRACULA[k - 1].hex;
+  const hash = Math.imul(k ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
+  const h = hash % 360, s = 0.6 + (hash >>> 9) % 30 / 100, l = 0.55 + (hash >>> 17) % 20 / 100;
+  const f = n => {
+    const t = (n + h / 30) % 12;
+    return Math.round(255 * (l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(t - 3, 9 - t, 1)))).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+function edgeKey(a, b) { return [a, b].sort().join('|'); }
+// Orden de los nodos: numérico si todas las etiquetas son números,
+// si no lexicográfico ("10" antes que "2", "A10" antes que "A2").
+function sortLabels(labels) {
+  const allNumeric = labels.every(l => l.trim() !== '' && !isNaN(l));
+  return [...labels].sort(allNumeric
+    ? (a, b) => Number(a) - Number(b)
+    : (a, b) => a.localeCompare(b, 'es'));
+}
+function fmtSet(values) { return values.length ? `{${values.join(', ')}}` : '∅'; }
+
+// ── Parseo del grafo (no dirigido): "A-B" declara una arista, "G" sola declara un nodo aislado.
+function parseGraphText(text) {
+  const tokens = text.split(/[\n,]/).map(t => t.trim()).filter(Boolean);
+  const nodeLabels = [];
+  const nodeSet = new Set();
+  const edgeSet = new Set();
+  const edges = [];
+  function addNode(label) {
+    if (!nodeSet.has(label)) { nodeSet.add(label); nodeLabels.push(label); }
+  }
+  for (const tok of tokens) {
+    const parts = tok.split('-').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const [a, b] = parts;
+      addNode(a); addNode(b);
+      if (a === b) continue;
+      const key = edgeKey(a, b);
+      if (!edgeSet.has(key)) { edgeSet.add(key); edges.push({ a, b, key }); }
+    } else if (parts.length === 1) {
+      addNode(parts[0]);
+    }
+  }
+  return { nodeLabels, edges };
+}
+
+// Adyacentes de cada vértice en el orden de sortLabels (ady[v] del pseudocódigo).
+function buildAdjacency(nodeLabels, edges) {
+  const adj = new Map();
+  for (const label of nodeLabels) adj.set(label, []);
+  for (const { a, b } of edges) {
+    adj.get(a).push(b);
+    adj.get(b).push(a);
+  }
+  for (const [label, list] of adj) adj.set(label, sortLabels(list));
+  return adj;
+}
+
+// ── Simula el pseudocódigo: arma "orden" según el modo y colorea según la estrategia.
+// Por vértice: un paso por cada adyacente mirado y por cada color probado en el MIENTRAS.
+// Por color: una pasada por color sobre "orden", con un paso por vértice y por adyacente mirado en puedeUsar.
+// Para un mismo orden, las dos estrategias dan el mismo coloreo.
+function computeSteps(adjacency, nodeLabels, mode, strategy) {
+  const steps = [];
+  if (!nodeLabels.length) return steps;
+
+  const main = MODES[mode].main;
+  const at = main.length + 1; // primera línea de colorearEnOrden
+  const L = strategy === 'color'
+    ? { coloring: at, n: at + 1, init: at + 2, counters: [at + 3, at + 4], whileCond: at + 5, inc: at + 6, loop: at + 7, pick: at + 8,
+      check: at + 9, assign: [at + 10, at + 11], ret: at + 13, forU: at + 16, ifU: at + 17, retTrue: at + 18 }
+    : { coloring: at, n: at + 1, init: at + 2, loop: at + 4, pick: at + 5, assign: at + 6, ret: at + 8,
+      usados: at + 11, color1: at + 12, whileCond: at + 13, inc: at + 14, retColor: at + 16 };
+
+  const labels = sortLabels(nodeLabels);
+  const n = labels.length;
+  const degree = l => adjacency.get(l).length;
+  let orden = [];
+  let colors = null;
+  let i = null, current = null, neighbor = null, seen = [], usados = null, candidate = null;
+  let passColor = null, coloreados = 0;
+  const rows = [];
+
+  function maxColor() { return colors ? Math.max(0, ...Object.values(colors)) : 0; }
+  function snapshot(activeLines, badge) {
+    steps.push({
+      activeLines, badge,
+      orden: [...orden], i,
+      colors: colors && { ...colors },
+      current, neighbor, seen: [...seen],
+      usados: usados && [...usados].sort((a, b) => a - b),
+      candidate, passColor, coloreados,
+      rows: rows.map(r => ({ ...r, taken: r.taken && [...r.taken] })),
+      maxColor: maxColor(),
+    });
+  }
+
+  // Orden según el modo. El sort de JS es estable: a igual grado queda el orden de sortLabels.
+  if (mode === 'secuencial') {
+    snapshot([1], { icon: '🔢', text: `n = |ady| = ${n} vértices.`, cls: 'bg-secondary' });
+    orden = labels;
+    snapshot([2, 3], { icon: '📋', text: `orden = [${orden.join(', ')}]: los vértices se colorean en su orden natural.`, cls: 'bg-primary' });
+  } else {
+    const desc = mode === 'welsh';
+    orden = [...labels].sort((a, b) => desc ? degree(b) - degree(a) : degree(a) - degree(b));
+    snapshot([1], {
+      icon: '📋',
+      text: `orden = [${orden.join(', ')}]: por grado ${desc ? 'decreciente (primero los que tienen más adyacentes)' : 'creciente (primero los que tienen menos adyacentes)'}; a igual grado, el orden natural.`,
+      cls: 'bg-primary',
+    });
+  }
+  snapshot([main.length - 1, L.coloring], { icon: '📞', text: `Se llama a colorearEnOrden con orden = [${orden.join(', ')}].`, cls: 'bg-secondary' });
+
+  colors = Object.fromEntries(labels.map(l => [l, 0]));
+  if (strategy === 'color') colorByColor();
+  else colorByVertex();
+
+  function colorByColor() {
+    snapshot([L.n, L.init, ...L.counters], { icon: '⬜', text: `colores arranca en 0 para los ${n} vértices (0 = "todavía sin color"), coloreados = 0 y color = 0.`, cls: 'bg-secondary' });
+    let c = 0;
+    while (coloreados < n) {
+      c++;
+      passColor = c;
+      i = null; current = null; neighbor = null; seen = [];
+      const row = { color: c, taken: [], coloreados };
+      rows.push(row);
+      snapshot([L.whileCond, L.inc], { icon: '🖌️', text: `coloreados = ${coloreados} < ${n}: pasada del color ${c}. Se recorre orden pintando con el ${c} todo lo que se pueda.`, cls: 'bg-primary' });
+
+      for (i = 0; i < n; i++) {
+        const v = orden[i];
+        current = v; neighbor = null; seen = [];
+        if (colors[v]) {
+          snapshot([L.loop, L.pick, L.check], { icon: '⏭️', text: `i = ${i}: v = ${v} ya tiene el color ${colors[v]}: se saltea.`, cls: 'bg-secondary' });
+          continue;
+        }
+        snapshot([L.loop, L.pick, L.check], { icon: '👉', text: `i = ${i}: v = ${v} no tiene color. ¿Puede usar el ${c}? Se miran sus adyacentes.`, cls: 'bg-warning text-dark' });
+
+        const ady = adjacency.get(v);
+        let blocker = null;
+        for (const u of ady) {
+          neighbor = u;
+          if (colors[u] === c) {
+            blocker = u;
+            snapshot([L.forU, L.ifU], { icon: '🚫', text: `${u} es adyacente de ${v} y ya tiene el ${c}: puedeUsar retorna falso, ${v} queda sin color en esta pasada.`, cls: 'bg-danger' });
+            break;
+          }
+          const why = colors[u] ? `tiene el ${colors[u]}, no el ${c}` : 'todavía no tiene color';
+          snapshot([L.forU, L.ifU], { icon: '➖', text: `${u} es adyacente de ${v} pero ${why}: no molesta, se sigue mirando.`, cls: 'bg-info text-dark' });
+          seen.push(u);
+        }
+        neighbor = null;
+        if (blocker) continue;
+
+        snapshot([L.retTrue], {
+          icon: '✔️',
+          text: ady.length ? `Ningún adyacente de ${v} tiene el ${c}: puedeUsar retorna verdadero.` : `${v} no tiene adyacentes: puedeUsar retorna verdadero.`,
+          cls: 'bg-success',
+        });
+        colors[v] = c;
+        coloreados++;
+        row.taken.push(v);
+        row.coloreados = coloreados;
+        snapshot(L.assign, { icon: '🎨', text: `colores[${v}] = ${c} y coloreados = ${coloreados}.`, cls: 'bg-success' });
+      }
+    }
+    i = null; current = null; neighbor = null; seen = []; passColor = null;
+    snapshot([L.whileCond], { icon: '🛑', text: `coloreados = ${n} = n: todos los vértices tienen color, termina el MIENTRAS.`, cls: 'bg-secondary' });
+  }
+
+  function colorByVertex() {
+    snapshot([L.n, L.init], { icon: '⬜', text: `colores arranca en 0 para los ${n} vértices: 0 significa "todavía sin color".`, cls: 'bg-secondary' });
+
+    for (i = 0; i < n; i++) {
+      const v = orden[i];
+      current = v;
+      neighbor = null; seen = []; usados = null; candidate = null;
+      const row = { i, v, degree: degree(v), usados: [], color: null };
+      rows.push(row);
+      snapshot([L.loop, L.pick], { icon: '👉', text: `i = ${i}: v = orden[${i}] = ${v}, que tiene ${degree(v)} adyacente${degree(v) === 1 ? '' : 's'}.`, cls: 'bg-warning text-dark' });
+
+      usados = new Set();
+      const ady = adjacency.get(v);
+      if (!ady.length) {
+        snapshot([L.assign, L.usados], { icon: '🏝️', text: `${v} no tiene adyacentes: usados = ∅.`, cls: 'bg-secondary' });
+      }
+      for (const u of ady) {
+        neighbor = u;
+        const c = colors[u];
+        const isNew = !usados.has(c);
+        usados.add(c);
+        row.usados = [...usados].sort((a, b) => a - b);
+        const text = c === 0
+          ? `${u} es adyacente de ${v} pero todavía no tiene color (0): no le quita ningún color a ${v}.`
+          : `${u} es adyacente de ${v} y tiene el color ${c}: ${v} no puede usar el ${c}${isNew ? '' : ' (ya estaba en usados)'}.`;
+        snapshot([L.assign, L.usados], { icon: c === 0 ? '⬜' : '🚫', text: `${text} usados = ${fmtSet(row.usados)}.`, cls: c === 0 ? 'bg-secondary' : 'bg-info text-dark' });
+        seen.push(u);
+      }
+      neighbor = null;
+
+      candidate = 1;
+      snapshot([L.color1], { icon: '1️⃣', text: `Se prueba desde el color 1.`, cls: 'bg-secondary' });
+      while (usados.has(candidate)) {
+        const owners = ady.filter(u => colors[u] === candidate);
+        snapshot([L.whileCond, L.inc], {
+          icon: '❌',
+          text: `El ${candidate} está en usados (lo tiene${owners.length === 1 ? '' : 'n'} ${owners.join(', ')}): se prueba el ${candidate + 1}.`,
+          cls: 'bg-danger',
+        });
+        candidate++;
+      }
+      snapshot([L.whileCond, L.retColor], { icon: '✔️', text: `El ${candidate} no está en usados ${fmtSet([...usados].sort((a, b) => a - b))}: es el menor color disponible.`, cls: 'bg-success' });
+
+      colors[v] = candidate;
+      row.color = candidate;
+      const isNewColor = candidate === maxColor() && !Object.entries(colors).some(([l, c]) => l !== v && c === candidate);
+      snapshot([L.assign], { icon: '🎨', text: `colores[${v}] = ${candidate}.${isNewColor ? ` Es un color nuevo: ya van ${candidate}.` : ''}`, cls: 'bg-success' });
+    }
+  }
+
+  i = null; current = null; seen = []; usados = null; candidate = null;
+  const k = maxColor();
+  snapshot([L.ret], { icon: '🏁', text: `Todos los vértices tienen color: se retorna colores, con ${k} color${k === 1 ? '' : 'es'} distinto${k === 1 ? '' : 's'}.`, cls: 'bg-success' });
+  snapshot([main.length - 1], {
+    icon: '📌',
+    text: `${MODES[mode].name} usó ${k} color${k === 1 ? '' : 'es'}: el número cromático es a lo sumo ${k}. Es un algoritmo ávido: otro orden puede usar menos.${strategy === 'color' ? ' Recorrer por color da el mismo coloreo que por vértice con este orden.' : ''}`,
+    cls: 'bg-primary',
+  });
+  return steps;
+}
+
+// ── Layout inicial circular: los nodos que ya tenían posición la conservan,
+// los nuevos se ubican en círculo según su índice en la lista total de nodos.
+function layoutNodes(nodeLabels, existingPositions) {
+  const R = 160;
+  const positions = {};
+  nodeLabels.forEach((label, i) => {
+    if (existingPositions[label]) { positions[label] = existingPositions[label]; return; }
+    const angle = (i / nodeLabels.length) * Math.PI * 2 - Math.PI / 2;
+    positions[label] = { x: Math.cos(angle) * R, y: Math.sin(angle) * R };
+  });
+  return positions;
+}
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-grafos-coloreo';
+    const NODE_R = 22;
+    const PADDING = 50;
+
+    const nodes = ref([]);
+    const edges = ref([]);
+    let adjacencyMap = new Map();
+
+    const mode = ref('secuencial');
+    const strategy = ref('vertice');
+    const steps = ref([]);
+    const currentStepIndex = ref(0);
+    const isPlaying = ref(false);
+    const speedMs = ref(700);
+    let playTimer = null;
+
+    const showEditor = ref(false);
+    const graphTextDraft = ref(DEFAULT_GRAPH_TEXT);
+
+    const camera = reactive({ offsetX: 0, offsetY: 0, scale: 1 });
+    const userAdjustedCamera = ref(false);
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+
+    const canvasEl = ref(null);
+    const containerEl = ref(null);
+
+    const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
+    const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
+    const pseudocode = computed(() => pseudocodeFor(mode.value, strategy.value));
+    const sortedLabels = computed(() => sortLabels(nodes.value.map(n => n.label)));
+    const degrees = computed(() => Object.fromEntries(nodes.value.map(n => [n.label, edges.value.filter(e => e.a === n.label || e.b === n.label).length])));
+    // Vértices consecutivos de "orden" con el mismo grado: una sola celda con colspan (en WP/Matula quedan juntos).
+    const degreeGroups = computed(() => {
+      const groups = [];
+      for (const v of currentStep.value ? currentStep.value.orden : []) {
+        const d = degrees.value[v];
+        if (groups.length && groups.at(-1).degree === d) groups.at(-1).span++;
+        else groups.push({ degree: d, span: 1 });
+      }
+      return groups;
+    });
+
+    // Fondo del chip con el color k (0 = sin color: gris del tema).
+    function chipStyle(k) {
+      if (!k) return { background: 'var(--bs-secondary-bg)', color: 'var(--bs-body-color)' };
+      const hex = colorHex(k);
+      return { background: hex, color: textColorOn(hex), borderColor: darken(hex) };
+    }
+
+    // ── Persistencia ──
+    function positionsMap() {
+      const m = {};
+      for (const n of nodes.value) m[n.label] = { x: n.x, y: n.y };
+      return m;
+    }
+    function currentState() {
+      return { graphText: graphTextDraft.value, positions: positionsMap(), mode: mode.value, strategy: strategy.value };
+    }
+    function applyState(data) {
+      graphTextDraft.value = data.graphText ?? graphTextDraft.value;
+      const { nodeLabels, edges: parsedEdges } = parseGraphText(graphTextDraft.value);
+      const posMap = layoutNodes(nodeLabels, data.positions || {});
+      nodes.value = nodeLabels.map(label => ({ label, x: posMap[label].x, y: posMap[label].y }));
+      edges.value = parsedEdges;
+      adjacencyMap = buildAdjacency(nodeLabels, parsedEdges);
+      mode.value = MODES[data.mode] ? data.mode : mode.value;
+      strategy.value = STRATEGIES[data.strategy] ? data.strategy : strategy.value;
+      regenerateSteps();
+    }
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
+    }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) { resetToDefault(); return; }
+        applyState(JSON.parse(raw));
+      } catch (e) { resetToDefault(); }
+    }
+
+    // ── Compartir por URL (#d=...) ──
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer el grafo de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo" (2 pasos) ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      newConfirm.value = false;
+      applyState({ graphText: DEFAULT_GRAPH_TEXT, positions: {}, mode: 'secuencial', strategy: 'vertice' });
+      persist();
+      userAdjustedCamera.value = false;
+      nextTick(() => { resizeCanvasToDisplaySize(); fitToView(); });
+    }
+
+    // ── Editar grafo ──
+    function applyGraphText() {
+      applyState({ ...currentState(), graphText: graphTextDraft.value });
+      persist();
+      userAdjustedCamera.value = false;
+      nextTick(() => { resizeCanvasToDisplaySize(); fitToView(); });
+    }
+    function onModeChange() {
+      regenerateSteps();
+      persist();
+    }
+
+    // ── Reproducción ──
+    function regenerateSteps() {
+      steps.value = computeSteps(adjacencyMap, nodes.value.map(n => n.label), mode.value, strategy.value);
+      currentStepIndex.value = 0;
+      stopAutoplay();
+      draw();
+    }
+    function goToStep(i) {
+      currentStepIndex.value = Math.max(0, Math.min(steps.value.length - 1, i));
+      draw();
+    }
+    function stepForward() { if (!isAtEnd.value) goToStep(currentStepIndex.value + 1); else stopAutoplay(); }
+    function stepBackward() { goToStep(currentStepIndex.value - 1); }
+    function restartAnimation() { stopAutoplay(); goToStep(0); }
+    function stopAutoplay() {
+      isPlaying.value = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    }
+    function togglePlay() {
+      if (isPlaying.value) { stopAutoplay(); return; }
+      if (isAtEnd.value) goToStep(0);
+      isPlaying.value = true;
+      playTimer = setInterval(() => {
+        if (isAtEnd.value) { stopAutoplay(); return; }
+        stepForward();
+      }, speedMs.value);
+    }
+
+    // ── Cámara: pan / zoom (igual que recursion/call-tree.html) ──
+    function worldToScreen(x, y) {
+      return { x: x * camera.scale + camera.offsetX, y: y * camera.scale + camera.offsetY };
+    }
+    function screenToWorld(x, y) {
+      return { x: (x - camera.offsetX) / camera.scale, y: (y - camera.offsetY) / camera.scale };
+    }
+    function fitToView(manual) {
+      if (!nodes.value.length || !containerEl.value) return;
+      const xs = nodes.value.map(n => n.x), ys = nodes.value.map(n => n.y);
+      const minX = Math.min(...xs) - NODE_R, maxX = Math.max(...xs) + NODE_R;
+      const minY = Math.min(...ys) - NODE_R, maxY = Math.max(...ys) + NODE_R;
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const contentW = Math.max(maxX - minX, 1), contentH = Math.max(maxY - minY, 1);
+      camera.scale = Math.max(0.2, Math.min((w - PADDING * 2) / contentW, (h - PADDING * 2) / contentH, 1.6));
+      camera.offsetX = w / 2 - (minX + maxX) / 2 * camera.scale;
+      camera.offsetY = h / 2 - (minY + maxY) / 2 * camera.scale;
+      if (manual) userAdjustedCamera.value = false;
+      draw();
+    }
+
+    function hitTestNode(sx, sy) {
+      for (let i = nodes.value.length - 1; i >= 0; i--) {
+        const n = nodes.value[i];
+        const p = worldToScreen(n.x, n.y);
+        if (Math.hypot(sx - p.x, sy - p.y) <= NODE_R * camera.scale) return n;
+      }
+      return null;
+    }
+
+    // ── Mouse: arrastrar un nodo si el mousedown empieza sobre él, si no, pan de cámara ──
+    let isPanning = false, panStart = null;
+    let draggingNode = null;
+    function onCanvasMouseDown(e) {
+      const hit = hitTestNode(e.offsetX, e.offsetY);
+      if (hit) { draggingNode = hit; return; }
+      isPanning = true;
+      panStart = { x: e.offsetX, y: e.offsetY, offsetX: camera.offsetX, offsetY: camera.offsetY };
+      canvasEl.value.style.cursor = 'grabbing';
+    }
+    function onCanvasMouseMove(e) {
+      if (draggingNode) {
+        const w = screenToWorld(e.offsetX, e.offsetY);
+        draggingNode.x = w.x;
+        draggingNode.y = w.y;
+        draw();
+        return;
+      }
+      if (!isPanning) return;
+      camera.offsetX = panStart.offsetX + (e.offsetX - panStart.x);
+      camera.offsetY = panStart.offsetY + (e.offsetY - panStart.y);
+      userAdjustedCamera.value = true;
+      draw();
+    }
+    function onCanvasMouseUp() {
+      if (draggingNode) { draggingNode = null; persist(); }
+      isPanning = false;
+      if (canvasEl.value) canvasEl.value.style.cursor = 'grab';
+    }
+    function onCanvasWheel(e) {
+      const rect = canvasEl.value.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const before = screenToWorld(mx, my);
+      camera.scale = Math.min(3, Math.max(0.2, camera.scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+      const after = worldToScreen(before.x, before.y);
+      camera.offsetX += mx - after.x;
+      camera.offsetY += my - after.y;
+      userAdjustedCamera.value = true;
+      draw();
+    }
+
+    // ── Paleta por tema para lo que no es un color asignado (Canvas no puede leer var(--bs-*)) ──
+    const PALETTES = {
+      light: { bg: '#ffffff', nodeFill: '#e9ecef', nodeStroke: '#6c757d', nodeText: '#212529', edge: '#adb5bd', current: '#ffc107', neighbor: '#0dcaf0' },
+      dark: { bg: '#212529', nodeFill: '#343a40', nodeStroke: '#adb5bd', nodeText: '#f8f9fa', edge: '#6c757d', current: '#ffda6a', neighbor: '#6edff6' },
+    };
+    function palette() { return PALETTES[isDark.value ? 'dark' : 'light']; }
+    function nodeByLabel(label) { return nodes.value.find(n => n.label === label); }
+
+    function resizeCanvasToDisplaySize() {
+      const canvas = canvasEl.value, container = containerEl.value;
+      if (!canvas || !container) return;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = container.clientWidth * dpr;
+      canvas.height = container.clientHeight * dpr;
+      canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function draw() {
+      const canvas = canvasEl.value;
+      if (!canvas || !containerEl.value) return;
+      const ctx = canvas.getContext('2d');
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const pal = palette();
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = pal.bg;
+      ctx.fillRect(0, 0, w, h);
+
+      const step = currentStep.value;
+      const cur = step ? step.current : null;
+      const r = NODE_R * camera.scale;
+
+      for (const e of edges.value) {
+        const from = nodeByLabel(e.a), to = nodeByLabel(e.b);
+        if (!from || !to) continue;
+        const p1 = worldToScreen(from.x, from.y), p2 = worldToScreen(to.x, to.y);
+        const other = e.a === cur ? e.b : e.b === cur ? e.a : null;
+        const isActive = other !== null && other === step.neighbor;
+        const isSeen = other !== null && step.seen.includes(other);
+        ctx.strokeStyle = isActive ? pal.neighbor : isSeen ? pal.neighbor : other !== null ? pal.current : pal.edge;
+        ctx.lineWidth = isActive ? 4 : other !== null ? 2.5 : 1.5;
+        ctx.setLineDash(isSeen ? [6, 5] : []);
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (const n of nodes.value) {
+        const p = worldToScreen(n.x, n.y);
+        const k = step && step.colors ? step.colors[n.label] : 0;
+        const hex = k ? colorHex(k) : null;
+
+        // Anillo exterior: v (amarillo), u actual (cian lleno) o u ya mirado (cian punteado).
+        const ring = n.label === cur ? pal.current : step && (n.label === step.neighbor || step.seen.includes(n.label)) ? pal.neighbor : null;
+        if (ring) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r + 5 * camera.scale, 0, Math.PI * 2);
+          ctx.strokeStyle = ring;
+          ctx.lineWidth = 4;
+          ctx.setLineDash(step.seen.includes(n.label) ? [5, 4] : []);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = hex || pal.nodeFill;
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = hex ? darken(hex) : pal.nodeStroke;
+        ctx.stroke();
+
+        ctx.fillStyle = hex ? textColorOn(hex) : pal.nodeText;
+        ctx.font = `${Math.max(10, 13 * camera.scale)}px system-ui, sans-serif`;
+        ctx.fillText(n.label, p.x, p.y);
+
+        // Número del color en un chip arriba a la derecha (distingue colores parecidos).
+        if (k) {
+          const cx = p.x + r * 0.8, cy = p.y - r * 0.8, cr = Math.max(8, 9 * camera.scale);
+          ctx.beginPath();
+          ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+          ctx.fillStyle = pal.bg;
+          ctx.fill();
+          ctx.strokeStyle = darken(hex);
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.fillStyle = pal.nodeText;
+          ctx.font = `bold ${Math.max(9, 11 * camera.scale)}px system-ui, sans-serif`;
+          ctx.fillText(String(k), cx, cy);
+        }
+      }
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+      draw();
+    }
+
+    // ── Ciclo de vida ──
+    function handleContainerResize() {
+      resizeCanvasToDisplaySize();
+      if (!userAdjustedCamera.value) fitToView();
+      draw();
+    }
+    // ResizeObserver y no window.resize: el canvas también cambia de tamaño cuando
+    // el panel de datos o la tabla de seguimiento cambian según su contenido.
+    const resizeObserver = new ResizeObserver(handleContainerResize);
+    onMounted(() => {
+      loadInitialState();
+      resizeCanvasToDisplaySize();
+      fitToView();
+      draw();
+      resizeObserver.observe(containerEl.value);
+    });
+    onBeforeUnmount(() => {
+      resizeObserver.disconnect();
+      stopAutoplay();
+    });
+
+    return {
+      nodes, mode, MODES, strategy, STRATEGIES, onModeChange, pseudocode, sortedLabels, degreeGroups, chipStyle,
+      steps, currentStepIndex, currentStep, isAtEnd,
+      isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,
+      showEditor, graphTextDraft, applyGraphText,
+      newConfirm, handleNewClick, shareCopied, shareCurrentState,
+      isDark, toggleTheme, fitToView,
+      canvasEl, containerEl, onCanvasMouseDown, onCanvasMouseMove, onCanvasMouseUp, onCanvasWheel,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
