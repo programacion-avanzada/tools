@@ -16,6 +16,8 @@
 
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
 
   <style>
     html, body { height: 100%; margin: 0; }
@@ -206,18 +208,18 @@
         </div>
 
         <details class="card mb-3">
-          <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+          <summary class="card-header fw-semibold">⏱️ Complejidad: <span v-html="tex(complexity.total)"></span></summary>
           <div class="card-body p-2" style="overflow-x: auto;">
             <table class="table table-sm table-bordered align-middle mb-2 small">
               <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
               <tbody>
                 <tr v-for="(r, idx) in complexity.rows" :key="idx">
                   <td class="font-monospace">{{ r[0] }}</td>
-                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }" v-html="tex(c)"></td>
                 </tr>
               </tbody>
             </table>
-            <p class="small mb-0">{{ complexity.note }}</p>
+            <p class="small mb-0" v-html="texInline(complexity.note)"></p>
           </div>
         </details>
 
@@ -458,20 +460,26 @@ function layoutNodes(nodeLabels, existingPositions) {
   return positions;
 }
 
-// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+// Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
+function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
+// Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
+function texInline(s) {
+  return s.split('$').map((t, i) => i % 2 ? tex(t) : t.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('');
+}
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total]; veces, costo y total en LaTeX.
 const COMPLEXITY = {
-  total: "O(E·log E)",
+  total: "O(E \\log E)",
   headers: ["Línea", "Veces", "Costo"],
   rows: [
     ["visitados ← {s}; aristas, MST, pesoTotal ← vacíos", "1", "O(1)"],
-    ["PARA CADA (s, v, peso) EN G.adyacentes(s): aristas.insertar", "grado(s)", "O(grado(s)·log E)"],
-    ["MIENTRAS visitados.tamaño() < G.numVertices() Y !aristas.vacia()", "≤ 2E (una vuelta por arista extraída)", "O(E)"],
-    ["(peso, u, v) ← aristas.extraerMinimo()", "≤ 2E", "O(E·log E)"],
-    ["SI v NO EN visitados: agregar(v); MST.agregar; pesoTotal", "entra V − 1 veces", "O(V)"],
-    ["PARA CADA (v, w, p) EN G.adyacentes(v)", "2E en total", "O(E)"],
-    ["SI w NO EN visitados: aristas.insertar((p, v, w))", "≤ 2E", "O(E·log E)"],
+    ["PARA CADA (s, v, peso) EN G.adyacentes(s): aristas.insertar", "\\operatorname{grado}(s)", "O(\\operatorname{grado}(s) \\log E)"],
+    ["MIENTRAS visitados.tamaño() < G.numVertices() Y !aristas.vacia()", "\\le 2E", "O(E)"],
+    ["(peso, u, v) ← aristas.extraerMinimo()", "\\le 2E", "O(E \\log E)"],
+    ["SI v NO EN visitados: agregar(v); MST.agregar; pesoTotal", "V - 1 \\text{ veces entra}", "O(V)"],
+    ["PARA CADA (v, w, p) EN G.adyacentes(v)", "2E \\text{ en total}", "O(E)"],
+    ["SI w NO EN visitados: aristas.insertar((p, v, w))", "\\le 2E", "O(E \\log E)"],
   ],
-  note: "Cada arista puede entrar a la cola una vez desde cada extremo (≤ 2E entradas), y cada inserción o extracción en el heap cuesta O(log E): total O(E·log E). Como E ≤ V², log E = O(log V), así que también se escribe O(E·log V). Las entradas viejas no se actualizan: se descartan al extraerlas (SI v NO EN visitados).",
+  note: "Cada arista puede entrar a la cola una vez desde cada extremo ($\\le 2E$ entradas), y cada inserción o extracción en el heap cuesta $O(\\log E)$: total $O(E \\log E)$. Como $E \\le V^2$, $\\log E = O(\\log V)$, así que también se escribe $O(E \\log V)$. Las entradas viejas no se actualizan: se descartan al extraerlas (SI v NO EN visitados).",
 };
 
 createApp({
@@ -833,7 +841,7 @@ createApp({
     });
 
     return {
-      complexity: COMPLEXITY,
+      complexity: COMPLEXITY, tex, texInline,
       nodes, startId, onStartChange, PSEUDOCODE,
       steps, currentStepIndex, currentStep, isAtEnd,
       isOpenRow, fmtSet,

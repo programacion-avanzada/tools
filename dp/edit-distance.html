@@ -203,18 +203,18 @@
           </div>
 
           <details class="card mt-3">
-            <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+            <summary class="card-header fw-semibold">⏱️ Complejidad: <span v-html="tex(complexity.total)"></span></summary>
             <div class="card-body p-2" style="overflow-x: auto;">
               <table class="table table-sm table-bordered align-middle mb-2 small">
                 <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
                 <tbody>
                   <tr v-for="(r, idx) in complexity.rows" :key="idx">
                     <td class="font-monospace">{{ r[0] }}</td>
-                    <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                    <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }" v-html="tex(c)"></td>
                   </tr>
                 </tbody>
               </table>
-              <p class="small mb-0">{{ complexity.note }}</p>
+              <p class="small mb-0" v-html="texInline(complexity.note)"></p>
             </div>
           </details>
         </template>
@@ -226,18 +226,24 @@
 <script>
 const { createApp, ref, computed, nextTick, watch } = Vue;
 
-// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+// Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
+function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
+// Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
+function texInline(s) {
+  return s.split('$').map((t, i) => i % 2 ? tex(t) : t.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('');
+}
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total]; veces, costo y total en LaTeX.
 const COMPLEXITY = {
-  total: "O(m·n)",
+  total: "O(m \\cdot n)",
   headers: ["Paso", "Veces", "Costo"],
   rows: [
-    ["dp ← tabla (m+1) × (n+1)", "(m+1)·(n+1)", "O(m·n)"],
+    ["dp ← tabla (m+1) × (n+1)", "(m+1)(n+1)", "O(m \\cdot n)"],
     ["Casos base: dp[i][0] ← i·eliminar, dp[0][j] ← j·insertar", "m + n + 2", "O(m + n)"],
-    ["PARA i = 1 HASTA m, PARA j = 1 HASTA n", "m·n", "O(m·n)"],
-    ["SI A[i] = B[j]: dp[i−1][j−1]  SINO mín(eliminar, insertar, sustituir)", "m·n, cada una O(1)", "O(m·n)"],
-    ["Reconstruir las operaciones desde (m, n)", "≤ m + n", "O(m + n)"],
+    ["PARA i = 1 HASTA m, PARA j = 1 HASTA n", "m \\cdot n", "O(m \\cdot n)"],
+    ["SI A[i] = B[j]: dp[i−1][j−1]  SINO mín(eliminar, insertar, sustituir)", "m \\cdot n \\text{, cada una } O(1)", "O(m \\cdot n)"],
+    ["Reconstruir las operaciones desde (m, n)", "\\le m + n", "O(m + n)"],
   ],
-  note: "Cada celda mira tres vecinas ya calculadas (arriba, izquierda, diagonal): O(1) por celda, así que es O(m·n) en tiempo y en memoria. Si solo interesa la distancia, alcanzan dos filas: O(min(m, n)) de memoria.",
+  note: "Cada celda mira tres vecinas ya calculadas (arriba, izquierda, diagonal): $O(1)$ por celda, así que es $O(m \\cdot n)$ en tiempo y en memoria. Si solo interesa la distancia, alcanzan dos filas: $O(\\min(m, n))$ de memoria.",
 };
 
 createApp({
@@ -538,7 +544,7 @@ createApp({
     nextTick(solve);
 
     return {
-      complexity: COMPLEXITY,
+      complexity: COMPLEXITY, tex, texInline,
       strA, strB, costIns, costDel, costRep,
       dpTable, selected,
       editDistance, opsTrace, opBadgeClass,

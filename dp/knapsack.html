@@ -212,18 +212,18 @@
           </div>
 
           <details class="card mt-3">
-            <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+            <summary class="card-header fw-semibold">⏱️ Complejidad: <span v-html="tex(complexity.total)"></span></summary>
             <div class="card-body p-2" style="overflow-x: auto;">
               <table class="table table-sm table-bordered align-middle mb-2 small">
                 <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
                 <tbody>
                   <tr v-for="(r, idx) in complexity.rows" :key="idx">
                     <td class="font-monospace">{{ r[0] }}</td>
-                    <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                    <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }" v-html="tex(c)"></td>
                   </tr>
                 </tbody>
               </table>
-              <p class="small mb-0">{{ complexity.note }}</p>
+              <p class="small mb-0" v-html="texInline(complexity.note)"></p>
             </div>
           </details>
         </template>
@@ -235,18 +235,24 @@
 <script>
 const { createApp, ref, computed, nextTick, watch } = Vue;
 
-// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+// Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
+function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
+// Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
+function texInline(s) {
+  return s.split('$').map((t, i) => i % 2 ? tex(t) : t.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('');
+}
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total]; veces, costo y total en LaTeX.
 const COMPLEXITY = {
-  total: "O(n·W)",
+  total: "O(n \\cdot W)",
   headers: ["Paso", "Veces", "Costo"],
   rows: [
-    ["val ← tabla (n+1) × (W+1), fila 0 en 0", "(n+1)·(W+1)", "O(n·W)"],
+    ["val ← tabla (n+1) × (W+1), fila 0 en 0", "(n+1)(W+1)", "O(n \\cdot W)"],
     ["PARA i = 1 HASTA n", "n", "O(n)"],
-    ["PARA j = 0 HASTA W", "n·(W+1)", "O(n·W)"],
-    ["val[i][j] ← máx(val[i−1][j], v_i + val[i−1][j − w_i])", "n·(W+1), cada una O(1)", "O(n·W)"],
+    ["PARA j = 0 HASTA W", "n(W+1)", "O(n \\cdot W)"],
+    ["val[i][j] ← máx(val[i−1][j], v_i + val[i−1][j − w_i])", "n(W+1) \\text{, cada una } O(1)", "O(n \\cdot W)"],
     ["Reconstruir x: de la fila n a la 1, restando w_i si se incluyó", "n", "O(n)"],
   ],
-  note: "Cada celda se calcula una sola vez mirando dos celdas de la fila anterior: O(1) por celda y (n+1)·(W+1) celdas, así que es O(n·W) en tiempo y en memoria. Es pseudo-polinomial: W es un valor, no un tamaño; escrito en binario ocupa log W bits, y agregarle un bit duplica el trabajo. Si solo interesa el valor óptimo, alcanza con una fila: O(W) de memoria.",
+  note: "Cada celda se calcula una sola vez mirando dos celdas de la fila anterior: $O(1)$ por celda y $(n+1)(W+1)$ celdas, así que es $O(n \\cdot W)$ en tiempo y en memoria. Es pseudo-polinomial: $W$ es un valor, no un tamaño; escrito en binario ocupa $\\log W$ bits, y agregarle un bit duplica el trabajo. Si solo interesa el valor óptimo, alcanza con una fila: $O(W)$ de memoria.",
 };
 
 createApp({
@@ -515,7 +521,7 @@ createApp({
     nextTick(solve);
 
     return {
-      complexity: COMPLEXITY,
+      complexity: COMPLEXITY, tex, texInline,
       capacity, items, dpTable, selected,
       capacityCols, rowLabel, solve,
       selectCell, cellClass,

@@ -16,6 +16,8 @@
 
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
 
   <style>
     html, body { height: 100%; margin: 0; }
@@ -208,18 +210,18 @@
         </div>
 
         <details class="card mb-3">
-          <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+          <summary class="card-header fw-semibold">⏱️ Complejidad según la variante</summary>
           <div class="card-body p-2" style="overflow-x: auto;">
             <table class="table table-sm table-bordered align-middle mb-2 small">
               <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
               <tbody>
                 <tr v-for="(r, idx) in complexity.rows" :key="idx">
                   <td class="font-monospace">{{ r[0] }}</td>
-                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }" v-html="tex(c)"></td>
                 </tr>
               </tbody>
             </table>
-            <p class="small mb-0">{{ complexity.note }}</p>
+            <p class="small mb-0" v-html="texInline(complexity.note)"></p>
           </div>
         </details>
 
@@ -544,18 +546,23 @@ function forestLayout(id) {
   };
 }
 
-// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+// Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
+function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
+// Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
+function texInline(s) {
+  return s.split('$').map((t, i) => i % 2 ? tex(t) : t.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('');
+}
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total]; veces, costo y total en LaTeX.
 const COMPLEXITY = {
-  total: "según la variante",
   headers: ["Operación", "Quick-find", "Quick-union", "Weighted QU", "Weighted QU + path halving"],
   rows: [
-    ["find(p): RETORNAR id[p] / MIENTRAS p ≠ id[p]", "O(1)", "O(altura) ≤ O(N)", "O(log N)", "≈ O(1) amortizado"],
-    ["union(p, q): PARA CADA i EN 0..N-1 / dos find + id[i] ← j", "O(N)", "O(altura) ≤ O(N)", "O(log N)", "≈ O(1) amortizado"],
-    ["connected(p, q): find(p) = find(q)", "O(1)", "O(altura) ≤ O(N)", "O(log N)", "≈ O(1) amortizado"],
+    ["find(p): RETORNAR id[p] / MIENTRAS p ≠ id[p]", "O(1)", "O(\\text{altura}) \\le O(N)", "O(\\log N)", "\\approx O(1) \\text{ amort.}"],
+    ["union(p, q): PARA CADA i EN 0..N-1 / dos find + id[i] ← j", "O(N)", "O(\\text{altura}) \\le O(N)", "O(\\log N)", "\\approx O(1) \\text{ amort.}"],
+    ["connected(p, q): find(p) = find(q)", "O(1)", "O(\\text{altura}) \\le O(N)", "O(\\log N)", "\\approx O(1) \\text{ amort.}"],
     ["count(): RETORNAR count", "O(1)", "O(1)", "O(1)", "O(1)"],
-    ["N elementos + M operaciones (peor caso)", "O(M·N)", "O(M·N)", "O(N + M·log N)", "O(N + M·α(N))"],
+    ["N elementos + M operaciones (peor caso)", "O(M \\cdot N)", "O(M \\cdot N)", "O(N + M \\log N)", "O(N + M\\,\\alpha(N))"],
   ],
-  note: "En quick-find, find lee un solo casillero pero union recorre todo id[]. En quick-union los dos suben por id[] hasta la raíz, y sin control de altura el árbol puede degenerar en una lista. Weighted cuelga siempre el árbol más chico del más grande: la profundidad de un elemento solo crece cuando su árbol al menos duplica su tamaño, así que nunca supera log₂ N. Path halving además acorta el camino en cada find; junto con weighted, el costo amortizado es O(α(N)), donde α (inversa de Ackermann) no pasa de 4 para cualquier N práctico.",
+  note: "En quick-find, find lee un solo casillero pero union recorre todo id[]. En quick-union los dos suben por id[] hasta la raíz, y sin control de altura el árbol puede degenerar en una lista. Weighted cuelga siempre el árbol más chico del más grande: la profundidad de un elemento solo crece cuando su árbol al menos duplica su tamaño, así que nunca supera $\\log_2 N$. Path halving además acorta el camino en cada find; junto con weighted, el costo amortizado es $O(\\alpha(N))$, donde $\\alpha$ (inversa de Ackermann) no pasa de 4 para cualquier $N$ práctico.",
 };
 
 createApp({
@@ -734,7 +741,7 @@ createApp({
     onBeforeUnmount(stopAutoplay);
 
     return {
-      complexity: COMPLEXITY,
+      complexity: COMPLEXITY, tex, texInline,
       VARIANTS, UF_R, names, opLabel,
       steps, currentStepIndex, currentStep, isAtEnd, panels, focused,
       onPath, cellClass, linkClass,
