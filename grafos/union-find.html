@@ -53,6 +53,7 @@
       .grid-wrap { grid-template-columns: 1fr; grid-template-rows: none; }
       .side-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
     }
+    summary.card-header { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -205,6 +206,22 @@
             <p class="small text-muted mt-2 mb-0">Accesos = lecturas + escrituras de id[] y sz[].</p>
           </div>
         </div>
+
+        <details class="card mb-3">
+          <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered align-middle mb-2 small">
+              <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                  <td class="font-monospace">{{ r[0] }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="small mb-0">{{ complexity.note }}</p>
+          </div>
+        </details>
 
         <div class="card">
           <div class="card-header fw-semibold">Leyenda</div>
@@ -527,6 +544,20 @@ function forestLayout(id) {
   };
 }
 
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+const COMPLEXITY = {
+  total: "según la variante",
+  headers: ["Operación", "Quick-find", "Quick-union", "Weighted QU", "Weighted QU + path halving"],
+  rows: [
+    ["find(p): RETORNAR id[p] / MIENTRAS p ≠ id[p]", "O(1)", "O(altura) ≤ O(N)", "O(log N)", "≈ O(1) amortizado"],
+    ["union(p, q): PARA CADA i EN 0..N-1 / dos find + id[i] ← j", "O(N)", "O(altura) ≤ O(N)", "O(log N)", "≈ O(1) amortizado"],
+    ["connected(p, q): find(p) = find(q)", "O(1)", "O(altura) ≤ O(N)", "O(log N)", "≈ O(1) amortizado"],
+    ["count(): RETORNAR count", "O(1)", "O(1)", "O(1)", "O(1)"],
+    ["N elementos + M operaciones (peor caso)", "O(M·N)", "O(M·N)", "O(N + M·log N)", "O(N + M·α(N))"],
+  ],
+  note: "En quick-find, find lee un solo casillero pero union recorre todo id[]. En quick-union los dos suben por id[] hasta la raíz, y sin control de altura el árbol puede degenerar en una lista. Weighted cuelga siempre el árbol más chico del más grande: la profundidad de un elemento solo crece cuando su árbol al menos duplica su tamaño, así que nunca supera log₂ N. Path halving además acorta el camino en cada find; junto con weighted, el costo amortizado es O(α(N)), donde α (inversa de Ackermann) no pasa de 4 para cualquier N práctico.",
+};
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-grafos-union-find';
@@ -703,6 +734,7 @@ createApp({
     onBeforeUnmount(stopAutoplay);
 
     return {
+      complexity: COMPLEXITY,
       VARIANTS, UF_R, names, opLabel,
       steps, currentStepIndex, currentStep, isAtEnd, panels, focused,
       onPath, cellClass, linkClass,

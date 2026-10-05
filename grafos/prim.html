@@ -46,6 +46,7 @@
       .data-panel { max-width: none; border-left: none; border-top: 1px solid var(--bs-border-color); }
       .code-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
     }
+    summary.card-header { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -203,6 +204,22 @@
             <p class="small text-muted mt-3 mb-0" v-if="currentStep">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
           </div>
         </div>
+
+        <details class="card mb-3">
+          <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered align-middle mb-2 small">
+              <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                  <td class="font-monospace">{{ r[0] }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="small mb-0">{{ complexity.note }}</p>
+          </div>
+        </details>
 
         <div class="card">
           <div class="card-header fw-semibold">Leyenda</div>
@@ -440,6 +457,22 @@ function layoutNodes(nodeLabels, existingPositions) {
   });
   return positions;
 }
+
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+const COMPLEXITY = {
+  total: "O(E·log E)",
+  headers: ["Línea", "Veces", "Costo"],
+  rows: [
+    ["visitados ← {s}; aristas, MST, pesoTotal ← vacíos", "1", "O(1)"],
+    ["PARA CADA (s, v, peso) EN G.adyacentes(s): aristas.insertar", "grado(s)", "O(grado(s)·log E)"],
+    ["MIENTRAS visitados.tamaño() < G.numVertices() Y !aristas.vacia()", "≤ 2E (una vuelta por arista extraída)", "O(E)"],
+    ["(peso, u, v) ← aristas.extraerMinimo()", "≤ 2E", "O(E·log E)"],
+    ["SI v NO EN visitados: agregar(v); MST.agregar; pesoTotal", "entra V − 1 veces", "O(V)"],
+    ["PARA CADA (v, w, p) EN G.adyacentes(v)", "2E en total", "O(E)"],
+    ["SI w NO EN visitados: aristas.insertar((p, v, w))", "≤ 2E", "O(E·log E)"],
+  ],
+  note: "Cada arista puede entrar a la cola una vez desde cada extremo (≤ 2E entradas), y cada inserción o extracción en el heap cuesta O(log E): total O(E·log E). Como E ≤ V², log E = O(log V), así que también se escribe O(E·log V). Las entradas viejas no se actualizan: se descartan al extraerlas (SI v NO EN visitados).",
+};
 
 createApp({
   setup() {
@@ -800,6 +833,7 @@ createApp({
     });
 
     return {
+      complexity: COMPLEXITY,
       nodes, startId, onStartChange, PSEUDOCODE,
       steps, currentStepIndex, currentStep, isAtEnd,
       isOpenRow, fmtSet,

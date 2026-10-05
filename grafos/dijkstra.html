@@ -50,6 +50,7 @@
       .data-panel { max-width: none; border-left: none; border-top: 1px solid var(--bs-border-color); }
       .code-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
     }
+    summary.card-header { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -245,6 +246,22 @@
             <p class="small text-muted mt-3 mb-0" v-if="currentStep">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
           </div>
         </div>
+
+        <details class="card mb-3">
+          <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered align-middle mb-2 small">
+              <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                  <td class="font-monospace">{{ r[0] }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="small mb-0">{{ complexity.note }}</p>
+          </div>
+        </details>
 
         <div class="card">
           <div class="card-header fw-semibold">Leyenda</div>
@@ -457,6 +474,23 @@ function layoutNodes(nodeLabels, existingPositions) {
   });
   return positions;
 }
+
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+const COMPLEXITY = {
+  total: "O((V+E)·log V)",
+  headers: ["Línea", "Veces", "Costo"],
+  rows: [
+    ["PARA CADA v EN V(G): distancia[v] ← ∞; visitado[v] ← FALSO", "V", "O(V)"],
+    ["distancia[s] ← 0; agregar(cola, s, 0)", "1", "O(1)"],
+    ["MIENTRAS NO estaVacia(cola)", "≤ E + 1 (una vuelta por entrada en la cola)", "O(E)"],
+    ["v ← extraerMinimo(cola)", "≤ E + 1", "O(E·log V)"],
+    ["SI NO visitado[v]: visitado[v] ← VERDADERO", "≤ E + 1 (entra V veces)", "O(E)"],
+    ["PARA CADA w EN sucesores(G, v)", "E en total (una vez por vértice visitado)", "O(E)"],
+    ["SI distancia[w] > distancia[v] + peso(v, w)", "E", "O(E)"],
+    ["distancia[w] ← …; predecesores[w] ← v; agregar(cola, w, …)", "≤ E", "O(E·log V)"],
+  ],
+  note: "La cola es un heap sin \"decrementar clave\": cada relajación agrega una entrada nueva, así que puede llegar a tener E + 1, y las viejas se descartan al extraerlas (SI NO visitado). Cada operación del heap cuesta O(log E), y como E ≤ V², log E ≤ 2·log V = O(log V). Total: O(V) + O(E·log V) = O((V+E)·log V). En un grafo no dirigido, E cuenta cada arista en los dos sentidos. Con matriz de adyacencia y sin heap (buscando el mínimo a mano) es O(V²).",
+};
 
 createApp({
   setup() {
@@ -893,6 +927,7 @@ createApp({
     });
 
     return {
+      complexity: COMPLEXITY,
       nodes, sortedNodes, weights, directed, toggleDirected, startId, onStartChange, PSEUDOCODE,
       steps, currentStepIndex, currentStep, isAtEnd,
       matrixCellClass, dpCellClass, isOpenRow, traceCellClass, fmt, fmtSet,

@@ -50,6 +50,7 @@
       .data-panel { max-width: none; border-left: none; border-top: 1px solid var(--bs-border-color); }
       .code-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
     }
+    summary.card-header { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -58,7 +59,7 @@
   <nav class="navbar navbar-dark bg-dark px-3">
     <span class="navbar-brand mb-0 h5">🎨 Coloreo de Grafos</span>
     <div class="d-flex align-items-center gap-2 flex-wrap">
-      <span class="badge bg-secondary">Grafos · O({{ mode === 'secuencial' ? '' : 'V·log V + ' }}{{ strategy === 'color' ? 'χ·(V+E)' : 'V+E' }})</span>
+      <span class="badge bg-secondary">Grafos · {{ complexity.total }}</span>
       <span class="badge bg-success" v-if="currentStep && currentStep.maxColor" title="Colores usados hasta este paso">{{ currentStep.maxColor }} color{{ currentStep.maxColor === 1 ? '' : 'es' }}</span>
       <select class="form-select form-select-sm" style="width:auto" v-model="mode" @change="onModeChange" title="Orden en que se colorean los vértices">
         <option v-for="(m, key) in MODES" :key="key" :value="key">{{ m.name }}</option>
@@ -259,6 +260,22 @@
             <p class="small text-muted mt-3 mb-0" v-if="currentStep">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
           </div>
         </div>
+
+        <details class="card mb-3">
+          <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered align-middle mb-2 small">
+              <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                  <td class="font-monospace">{{ r[0] }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="small mb-0">{{ complexity.note }}</p>
+          </div>
+        </details>
 
         <div class="card">
           <div class="card-header fw-semibold">Leyenda</div>
@@ -625,6 +642,40 @@ function layoutNodes(nodeLabels, existingPositions) {
   return positions;
 }
 
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+// Depende del modo (cómo se arma orden) y de la estrategia (por vértice o por color).
+function complexityFor(mode, strategy) {
+  const sorted = mode !== 'secuencial';
+  const orderRow = sorted ? ["orden ← ordenarPorGrado…(ady)", "1 (grado(v) = |ady[v]|)", "O(V·log V)"] : ["n ← |ady|; PARA i: orden[i] ← i", "V", "O(V)"];
+  const sortNote = sorted ? ' Ordenar por grado agrega O(V·log V).' : '';
+  if (strategy === 'color') return {
+    total: `O(${sorted ? 'V·log V + ' : ''}k·(V+E))`,
+    headers: ["Línea", "Veces", "Costo"],
+    rows: [
+      orderRow,
+      ["colores ← {0} * n; coloreados ← 0; color ← 0", "V", "O(V)"],
+      ["MIENTRAS coloreados < n: color ← color + 1", "k (colores que termina usando)", "O(k)"],
+      ["PARA i: v ← orden[i]; SI colores[v] = 0", "k·V", "O(k·V)"],
+      ["puedeUsar: PARA CADA u ∈ ady[v]", "≤ 2E por pasada", "O(k·E)"],
+      ["colores[v] ← color; coloreados ← coloreados + 1", "V", "O(V)"],
+    ],
+    note: 'k es la cantidad de colores que usa (a lo sumo el grado máximo + 1). Cada pasada recorre los V vértices de orden y, para los que no tienen color, sus adyacentes: O(V+E) por pasada, y hay k pasadas: O(k·(V+E)), que en el peor caso (un grafo completo, k = V) es O(V·(V+E)). Por vértice da el mismo coloreo en O(V+E).' + sortNote,
+  };
+  return {
+    total: `O(${sorted ? 'V·log V + ' : ''}V+E)`,
+    headers: ["Línea", "Veces", "Costo"],
+    rows: [
+      orderRow,
+      ["colores ← {0} * n", "V", "O(V)"],
+      ["PARA i = 0 HASTA n − 1: v ← orden[i]", "V", "O(V)"],
+      ["usados ← { colores[u] : u ∈ ady[v] }", "grado(v) por vértice, 2E en total", "O(E)"],
+      ["MIENTRAS color ∈ usados: color ← color + 1", "≤ grado(v) + 1 por vértice", "O(V+E)"],
+      ["colores[v] ← …", "V", "O(V)"],
+    ],
+    note: 'usados tiene a lo sumo grado(v) colores, así que el MIENTRAS da como mucho grado(v) + 1 vueltas (con usados como conjunto de hash, cada "∈" es O(1)). Sumando sobre todos los vértices: Σ (grado(v) + 1) = 2E + V, o sea O(V+E).' + sortNote,
+  };
+}
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-grafos-coloreo';
@@ -656,6 +707,7 @@ createApp({
     const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
     const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
     const pseudocode = computed(() => pseudocodeFor(mode.value, strategy.value));
+    const complexity = computed(() => complexityFor(mode.value, strategy.value));
     const sortedLabels = computed(() => sortLabels(nodes.value.map(n => n.label)));
     const degrees = computed(() => Object.fromEntries(nodes.value.map(n => [n.label, edges.value.filter(e => e.a === n.label || e.b === n.label).length])));
     // Vértices consecutivos de "orden" con el mismo grado: una sola celda con colspan (en WP/Matula quedan juntos).
@@ -988,6 +1040,7 @@ createApp({
     });
 
     return {
+      complexity,
       nodes, mode, MODES, strategy, STRATEGIES, onModeChange, pseudocode, sortedLabels, degreeGroups, chipStyle,
       steps, currentStepIndex, currentStep, isAtEnd,
       isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,

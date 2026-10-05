@@ -105,6 +105,15 @@ Para algoritmos paso a paso sobre un grafo genérico (DFS/BFS y similares), dond
   - **Matriz de adyacencia**: card flotante arriba a la derecha (`showMatrix`, no se persiste), `computed` a partir de `edges`/`directed`; `sortLabels` copiado de `dijkstra.html`.
   - **Export PPTX**: PptxGenJS `4.0.1` (excepción a la lista de CDNs, solo acá), cargado con un `<script>` dinámico recién al exportar, no en el `<head>`. PptxGenJS no genera conectores: las aristas se emiten como líneas con `objectName` (`e0`, `e1`...) y después se reescriben en `slide1.xml` como `<p:cxnSp>` con `stCxn`/`endCxn` hacia los nodos (`n0`, `n1`...), usando el `JSZip` que trae el bundle. Ese retoque depende del XML de esa versión exacta: si se actualiza PptxGenJS, volver a probar el import en Google Slides moviendo un nodo. Los costos quedan como texto suelto (un conector no puede llevar texto).
 
+## Complejidad desplegable (obligatorio en herramientas de algoritmos)
+
+Toda herramienta que muestra un algoritmo (DP, grafos, estructuras) lleva una card `<details class="card">` cerrada por defecto con `<summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>` (CSS: `summary.card-header { cursor: pointer; }`). Va antes de la Leyenda del panel de explicación (en DP, debajo de "🔍 Explicación paso a paso"). Sin JS ni estado, no se persiste.
+
+- Los datos viven en una constante `COMPLEXITY = { total, headers, rows, note }` antes de `createApp` y se exponen como `complexity` en el `return` del `setup()`. Si depende de la configuración, es un `computed` (`coloreo.html`: `complexityFor(mode, strategy)`, y el badge del navbar usa el mismo `complexity.total`).
+- `headers` suele ser `['Línea', 'Veces', 'Costo']` (en DP `'Paso'`, porque no hay pseudocódigo en pantalla); cada fila es `[línea del pseudocódigo, veces que se ejecuta, costo total]`, con el texto del `PSEUDOCODE` de la herramienta. `union-find.html` usa una columna por variante.
+- `note` suma los costos en prosa y aclara lo que no sale de la tabla (memoria, peor caso con la implementación de la herramienta, alternativas).
+- Notación en Unicode (`O(V·log V)`, `⌊log₂ n⌋`), sin KaTeX.
+
 ## Persistencia, "Nuevo" y Compartir por URL (obligatorio)
 
 Apoyado en dos helpers idénticos por archivo:

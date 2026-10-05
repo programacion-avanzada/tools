@@ -65,6 +65,7 @@
       .tree-wrap { min-height: 320px; }
       .code-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
     }
+    summary.card-header { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -223,6 +224,22 @@
             </button>
           </div>
         </div>
+
+        <details class="card mb-3">
+          <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered align-middle mb-2 small">
+              <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                  <td class="font-monospace">{{ r[0] }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="small mb-0">{{ complexity.note }}</p>
+          </div>
+        </details>
 
         <div class="card">
           <div class="card-header fw-semibold">Leyenda</div>
@@ -466,6 +483,20 @@ function nodePos(i, width) {
   const slots = 2 ** d;
   return { x: (i - slots + 0.5) * width / slots, y: d * LEVEL_H + NODE_R + 6 };
 }
+
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+const COMPLEXITY = {
+  total: "O(log n)",
+  headers: ["Línea", "Veces", "Costo"],
+  rows: [
+    ["InsertarHeap: heap[|heap|] ← x", "1", "O(1) amortizado"],
+    ["flotarElemento: MIENTRAS actual > 1 Y heap[actual] < heap[padre(actual)]", "≤ altura = ⌊log₂ n⌋", "O(log n)"],
+    ["ExtraerMinimo: minimo ← heap[1]; heap[1] ← último; quitarUltimo", "1", "O(1)"],
+    ["hundirElemento: 2 comparaciones + intercambio + llamada recursiva", "≤ altura = ⌊log₂ n⌋ niveles", "O(log n)"],
+    ["VerMinimo: RETORNAR heap[1]", "1", "O(1)"],
+  ],
+  note: "Un heap con n elementos es un árbol completo de altura ⌊log₂ n⌋. Flotar sube un nivel por intercambio y hundir baja uno, así que ninguno hace más intercambios que la altura: insertar y extraer son O(log n). Ver el mínimo es O(1) porque siempre está en heap[1]. Insertar n elementos de a uno cuesta O(n·log n).",
+};
 
 createApp({
   setup() {
@@ -752,6 +783,7 @@ createApp({
     onBeforeUnmount(() => { stopAutoplay(); cancelAnimationFrame(animFrame); resizeObserver.disconnect(); });
 
     return {
+      complexity: COMPLEXITY,
       CODE, NODE_R, fmt, opLabel, ops, opStart,
       steps, currentStepIndex, currentStep, isAtEnd, tree, treeWrapEl, leaving, slotAt, nodeTransform, roleOf,
       pickedIndex, pickIndex, relOf, kinship,

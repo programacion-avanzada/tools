@@ -37,6 +37,8 @@
       .canvas-wrap { flex: 1 1 55%; }
       .code-panel { flex: 1 1 45%; border-left: none; border-top: 1px solid var(--bs-border-color); }
     }
+    summary.card-header { cursor: pointer; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
   </style>
 </head>
 <body>
@@ -142,6 +144,22 @@
             </div>
           </div>
         </div>
+
+        <details class="card mb-3">
+          <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered align-middle mb-2 small">
+              <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                  <td class="font-monospace">{{ r[0] }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="small mb-0">{{ complexity.note }}</p>
+          </div>
+        </details>
 
         <div class="card">
           <div class="card-header fw-semibold">Leyenda</div>
@@ -293,6 +311,22 @@ function layoutNodes(nodeLabels, existingPositions) {
   });
   return positions;
 }
+
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+const COMPLEXITY = {
+  total: "O(V+E)",
+  headers: ["Línea", "Veces", "Costo"],
+  rows: [
+    ["pila ← …, visitados ← …", "1", "O(1)"],
+    ["Apilar(pila, inicio); Agregar(visitados, inicio)", "1", "O(1)"],
+    ["MIENTRAS NO EstaVacia(pila)", "V + 1 (cada vértice se apila una sola vez)", "O(V)"],
+    ["v ← Desapilar(pila); Procesar(v)", "V", "O(V)"],
+    ["PARA CADA vecino EN Adyacentes(grafo, v)", "Σ grado(v) = 2E en total", "O(E)"],
+    ["SI vecino NOT IN visitados", "2E", "O(E)"],
+    ["Apilar(pila, vecino); Agregar(visitados, vecino)", "≤ V − 1", "O(V)"],
+  ],
+  note: "Cada vértice entra a la pila una sola vez, porque se marca como visitado al apilarlo, y cada arista se mira desde sus dos extremos: O(V) + O(E) = O(V+E) con lista de adyacencia. Con matriz de adyacencia, Adyacentes(v) costaría O(V) y el total sería O(V²). Memoria: O(V) para la pila y los visitados.",
+};
 
 createApp({
   setup() {
@@ -623,6 +657,7 @@ createApp({
     });
 
     return {
+      complexity: COMPLEXITY,
       nodes, startId, onStartChange, PSEUDOCODE,
       steps, currentStepIndex, currentStep, isAtEnd,
       isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,

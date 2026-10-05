@@ -28,6 +28,8 @@
     .cell-dep-skip { background-color: var(--bs-primary-bg-subtle) !important; outline: 2px solid var(--bs-primary-border-subtle); }
     .cell-dep-take { background-color: var(--bs-warning-bg-subtle) !important; outline: 2px solid var(--bs-warning-border-subtle); }
     .cell-vec { font-size: 0.7rem; letter-spacing: 0.1em; }
+    summary.card-header { cursor: pointer; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
   </style>
 </head>
 <body>
@@ -209,6 +211,21 @@
             </div>
           </div>
 
+          <details class="card mt-3">
+            <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+            <div class="card-body p-2" style="overflow-x: auto;">
+              <table class="table table-sm table-bordered align-middle mb-2 small">
+                <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+                <tbody>
+                  <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                    <td class="font-monospace">{{ r[0] }}</td>
+                    <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="small mb-0">{{ complexity.note }}</p>
+            </div>
+          </details>
         </template>
       </div>
     </div>
@@ -217,6 +234,20 @@
 
 <script>
 const { createApp, ref, computed, nextTick, watch } = Vue;
+
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+const COMPLEXITY = {
+  total: "O(n·W)",
+  headers: ["Paso", "Veces", "Costo"],
+  rows: [
+    ["val ← tabla (n+1) × (W+1), fila 0 en 0", "(n+1)·(W+1)", "O(n·W)"],
+    ["PARA i = 1 HASTA n", "n", "O(n)"],
+    ["PARA j = 0 HASTA W", "n·(W+1)", "O(n·W)"],
+    ["val[i][j] ← máx(val[i−1][j], v_i + val[i−1][j − w_i])", "n·(W+1), cada una O(1)", "O(n·W)"],
+    ["Reconstruir x: de la fila n a la 1, restando w_i si se incluyó", "n", "O(n)"],
+  ],
+  note: "Cada celda se calcula una sola vez mirando dos celdas de la fila anterior: O(1) por celda y (n+1)·(W+1) celdas, así que es O(n·W) en tiempo y en memoria. Es pseudo-polinomial: W es un valor, no un tamaño; escrito en binario ocupa log W bits, y agregarle un bit duplica el trabajo. Si solo interesa el valor óptimo, alcanza con una fila: O(W) de memoria.",
+};
 
 createApp({
   setup() {
@@ -484,6 +515,7 @@ createApp({
     nextTick(solve);
 
     return {
+      complexity: COMPLEXITY,
       capacity, items, dpTable, selected,
       capacityCols, rowLabel, solve,
       selectCell, cellClass,

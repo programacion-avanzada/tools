@@ -31,6 +31,7 @@
     .lcs-char       { display: inline-block; width: 28px; height: 28px; line-height: 28px;
                       text-align: center; border: 1px solid var(--bs-border-color); border-radius: 4px;
                       font-family: monospace; font-weight: bold; }
+    summary.card-header { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -186,6 +187,21 @@
             </div>
           </div>
 
+          <details class="card mt-3">
+            <summary class="card-header fw-semibold">⏱️ Complejidad: {{ complexity.total }}</summary>
+            <div class="card-body p-2" style="overflow-x: auto;">
+              <table class="table table-sm table-bordered align-middle mb-2 small">
+                <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+                <tbody>
+                  <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                    <td class="font-monospace">{{ r[0] }}</td>
+                    <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }">{{ c }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="small mb-0">{{ complexity.note }}</p>
+            </div>
+          </details>
         </template>
       </div>
     </div>
@@ -194,6 +210,20 @@
 
 <script>
 const { createApp, ref, computed, nextTick, watch } = Vue;
+
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total].
+const COMPLEXITY = {
+  total: "O(m·n)",
+  headers: ["Paso", "Veces", "Costo"],
+  rows: [
+    ["dp ← tabla (m+1) × (n+1), fila 0 y columna 0 en 0", "(m+1)·(n+1)", "O(m·n)"],
+    ["PARA i = 1 HASTA m", "m", "O(m)"],
+    ["PARA j = 1 HASTA n", "m·n", "O(m·n)"],
+    ["SI A[i] = B[j]: dp[i−1][j−1] + 1  SINO máx(dp[i−1][j], dp[i][j−1])", "m·n, cada una O(1)", "O(m·n)"],
+    ["Reconstruir la subsecuencia desde (m, n)", "≤ m + n", "O(m + n)"],
+  ],
+  note: "Cada celda mira como mucho tres vecinas ya calculadas: O(1) por celda, así que es O(m·n) en tiempo y en memoria. Si solo interesa la longitud, alcanzan dos filas: O(min(m, n)) de memoria.",
+};
 
 createApp({
   setup() {
@@ -417,6 +447,7 @@ createApp({
     nextTick(solve);
 
     return {
+      complexity: COMPLEXITY,
       strA, strB, dpTable, selected,
       lcsLength, lcsString,
       solve, selectCell, cellClass,
