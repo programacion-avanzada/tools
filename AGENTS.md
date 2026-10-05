@@ -221,6 +221,8 @@ En las visualizaciones, al final de la columna izquierda dentro de `<div class="
 
 Única página sin Vue ni KaTeX — listado estático. Mismo `<head>` (script de tema + Bootstrap CSS), mismo navbar, tarjetas `card` (emoji + nombre + badge) agrupadas por sección (`<h2 class="h5">`), footer al final. Una familia nueva es solo otro `<h2>` + `.row`.
 
+En cada herramienta, el título del navbar es el link de vuelta a la portada: `<a class="navbar-brand mb-0 h5" href="../index.html" title="Volver a todas las herramientas"><span class="opacity-75 me-1">←</span>🎒 Nombre</a>`.
+
 **Al agregar una visualización nueva, actualizar `index.html`** (tarjeta nueva, mismo emoji que su navbar) además de la fila en `README.md`.
 
 ## Checklist para una visualización nueva (Familia 1: tabla de PD)
