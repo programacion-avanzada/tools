@@ -140,6 +140,7 @@ El heap permite:
 |---|---|---|
 | [`bnb/subset-sum.html`](bnb/subset-sum.html) | Suma de subconjuntos (Best-First, FIFO o LIFO) | O(2ⁿ) nodos en el peor caso |
 | [`bnb/knapsack.html`](bnb/knapsack.html) | Mochila 0/1 con cota de mochila fraccionaria (Best-First, FIFO o LIFO) | O(n·2ⁿ) |
+| [`bnb/tsp.html`](bnb/tsp.html) | Viajante (TSP) sobre un grafo dirigido, con cota por mínimos de fila (Best-First, FIFO o LIFO) | O(n²·(n−1)!) |
 
 Permite:
 - Cargar los números (hasta 6) y el objetivo W, con la opción de ordenarlos de mayor a menor antes de armar el árbol.
@@ -148,7 +149,7 @@ Permite:
 - Seguir el pseudocódigo con la línea activa, la tabla de funciones del problema (HijosDe, EsFactible, EsSolucion, Valor, Cota), los pendientes en el orden en que van a salir, `mejor`/`mejorSolucion` y una tabla de seguimiento por paso.
 - Ver el costo de la versión corta, en la que los infactibles entran a la cola y se descartan recién al salir. Con Best-First, además, la explicación marca el primer momento en que ya se podría terminar.
 - Zoom con la rueda del mouse (centrado en el cursor) y arrastrar para mover el árbol; 🎯 vuelve a encuadrarlo entero.
-- Vista alternativa "📂 Lista" (botón 🌳 Árbol / 📂 Lista): el mismo árbol como el comando `tree`, un nodo por fila con sangría por nivel, que no se ensancha. Las filas se compactan (al insertar un hijo, lo de abajo baja, animado), la rueda hace scroll (Ctrl+rueda, zoom) y la vista acompaña al paso actual hasta que la movés. La vista elegida se recuerda y viaja en el link de Compartir.
+- Vista alternativa "📂 Lista" (botón 🌳 Árbol / 📂 Lista, en las tres herramientas): el mismo árbol como el comando `tree`, un nodo por fila con sangría por nivel, que no se ensancha. Las filas se compactan (al insertar un hijo, lo de abajo baja, animado), la rueda hace scroll (Ctrl+rueda, zoom) y la vista acompaña al paso actual hasta que la movés. La vista elegida se recuerda y viaja en el link de Compartir.
 - Clic en un nodo: queda seleccionado y se resalta su paso en la tabla de seguimiento; al revés, clic en el número de paso de la tabla selecciona (y centra) el nodo. Escape o clic en el vacío lo suelta.
 - Autoplay, autoguardado, "🆕 Nuevo", "🔗 Compartir" y modo claro/oscuro como el resto.
 
@@ -156,6 +157,14 @@ La mochila 0/1 es la misma herramienta con otro problema:
 - Los ítems se cargan como `beneficio:peso` (`40:2, 30:5, 50:10, 10:5`) con la capacidad W, y se muestran en una tabla i | p | w | p/w. La opción de ordenar los ordena por p/w; cada ítem conserva su número.
 - Cada nodo muestra `{1, !2}`, `valor / cota` y el peso contra la capacidad (`peso 17 / 16`), así se ve a simple vista si se descarta por infactible o por cota. La cota es la de la mochila fraccionaria con los ítems que faltan (por p/w, enteros mientras entren y la fracción del primero que no entra), y la explicación muestra la cuenta: `$40 + $30 + 9/10·$50 = $115`.
 - El ejemplo por defecto es el de la teoría (W = 16, recorrido en anchura): genera los mismos 17 nodos que el árbol de Neapolitan y llega a {1, 3} = $90.
+
+El viajante (TSP) es de minimización: el mismo pseudocódigo con `mejor ← +∞`, `ExtraerMenorCota`, `Cota ≥ mejor` y `Valor < mejor`.
+- El grafo se carga como matriz de costos dirigida (fila = desde, columna = hacia; `-` = no hay arista), de 3 a 6 vértices.
+- Cada nodo es el camino fijado desde v1 (`[1, 3]`, con `costo / cota`). Con n − 1 vértices fijados el tour se completa solo y el nodo muestra el tour y su longitud. Un camino que usa una arista inexistente sale ✗.
+- "🧭 Greedy": arranca con el tour del vecino más cercano desde v1 como `mejor` (cambia la primera línea del pseudocódigo).
+- Al lado del árbol, la cota del nodo en foco sobre la matriz, como en la teoría: aristas fijadas en verde, filas y columnas que ya no se pueden usar en rojo, mínimos de cada fila encerrados, y la cuenta (`cota = 4 + (7 + 5 + 2 + 4) = 22`). Debajo, el grafo con el camino de ese nodo y, al final, el tour óptimo.
+- El foco sigue al paso actual; un clic en un nodo del árbol lo fija (Escape o clic en el vacío lo suelta).
+- El ejemplo por defecto es el de la teoría: con Best-First genera los mismos 17 de 41 nodos y llega a 1→4→5→2→3→1 = 30.
 
 ### Programación Dinámica
 
