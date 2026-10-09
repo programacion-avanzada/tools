@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Branch & Bound — Mochila 0/1</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .main-row { flex: 1 1 auto; display: flex; min-height: 0; }
+    .left-col { flex: 2 1 0; display: flex; flex-direction: column; min-width: 0; }
+    .top-row { flex: 1 1 65%; display: flex; min-height: 0; }
+    .tree-area { flex: 1 1 0; position: relative; min-width: 0; }
+    .tree-view { position: absolute; inset: 0; overflow: hidden; }
+    .tree-view svg { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+    .tree-view svg.panning { cursor: grabbing; }
+    .data-panel { flex: 0 1 auto; width: 230px; max-width: 45%; overflow: auto; border-left: 1px solid var(--bs-border-color); padding: .5rem; }
+    .trace-wrap { flex: 1 1 35%; overflow: auto; border-top: 1px solid var(--bs-border-color); padding: .5rem; }
+    .code-panel { flex: 1 1 0; overflow-y: auto; border-left: 1px solid var(--bs-border-color); min-width: 300px; }
+    .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
+    .editor-panel { position: absolute; bottom: .75rem; left: .75rem; width: 300px; max-width: calc(100% - 1.5rem); }
+    .pseudo-code { font-family: Consolas, monospace; font-size: .8rem; white-space: pre; padding: .5rem 0; overflow-x: auto; }
+    .pseudo-line { padding: .1rem .75rem; min-height: 1.2em; }
+    .pseudo-active { background: var(--bs-warning-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .mini-table td, .mini-table th { padding: .15rem .5rem; }
+    .row-open > td { background-color: var(--bs-warning-bg-subtle) !important; }
+    /* Paso del nodo seleccionado (clic en el nodo o en el número de paso) */
+    .row-selected > td { background-color: color-mix(in srgb, var(--bs-purple) 18%, var(--bs-body-bg)) !important; }
+    .step-link { cursor: pointer; color: var(--bs-link-color); text-decoration: underline dotted; }
+    .cell-final { background-color: var(--bs-success-bg-subtle) !important; }
+
+    /* Árbol de estados (SVG) */
+    .bn-edge { stroke: var(--bs-secondary-color); stroke-width: 1.5; fill: none; }
+    /* Al cambiar de vista o compactarse la lista, nodos y aristas se deslizan (ver listLayout). */
+    .bn-node, .bn-edge, .bn-edge-label { transition: transform .3s ease, d .3s ease; }
+    .bn-edge.active { stroke: var(--bs-primary); stroke-width: 3; }
+    .bn-edge-label { font-size: 11px; fill: var(--bs-secondary-color); paint-order: stroke; stroke: var(--bs-body-bg); stroke-width: 4px; }
+    .bn-box { fill: var(--bs-tertiary-bg); stroke: var(--bs-secondary-color); stroke-width: 1.2; }
+    .bn-pending .bn-box { fill: var(--bs-body-bg); stroke: var(--bs-primary); stroke-dasharray: 5 4; }
+    .bn-best .bn-box { fill: var(--bs-success-bg-subtle); stroke: var(--bs-success); stroke-width: 2; }
+    .bn-current .bn-box { fill: var(--bs-warning-bg-subtle); stroke: var(--bs-warning); stroke-width: 3; stroke-dasharray: none; }
+    .bn-pinned .bn-box { stroke: var(--bs-purple); stroke-width: 3; stroke-dasharray: none; }
+    .bn-text { font-family: Consolas, monospace; font-size: 12px; fill: var(--bs-body-color); }
+    .bn-order circle { fill: var(--bs-body-bg); stroke: var(--bs-secondary-color); }
+    .bn-order text { font-size: 11px; font-weight: 600; fill: var(--bs-body-color); }
+    .bn-mark text { font-size: 11px; font-weight: 700; }
+    .bn-mark.infeasible circle { fill: var(--bs-emphasis-color); }
+    .bn-mark.infeasible text { fill: var(--bs-body-bg); }
+    .bn-mark.pruned circle { fill: var(--bs-danger-bg-subtle); stroke: var(--bs-danger); }
+    .bn-mark.pruned text { fill: var(--bs-danger-text-emphasis); }
+    .bn-mark.best circle { fill: var(--bs-success); }
+    .bn-mark.best text { fill: #fff; }
+    .legend-box { display: inline-block; width: 1.6em; height: 1.1em; border-radius: 3px; border: 1px solid var(--bs-secondary-color); background: var(--bs-tertiary-bg); }
+    .legend-box.pending { background: var(--bs-body-bg); border: 1px dashed var(--bs-primary); }
+    .legend-box.current { background: var(--bs-warning-bg-subtle); border: 2px solid var(--bs-warning); }
+    .legend-box.best { background: var(--bs-success-bg-subtle); border: 2px solid var(--bs-success); }
+    .legend-box.pinned { border: 2px solid var(--bs-purple); }
+    @media (max-width: 768px) {
+      #app { height: auto; }
+      .main-row, .top-row { flex-direction: column; }
+      .tree-area { flex: none; height: 360px; }
+      .data-panel { width: auto; max-width: none; border-left: none; border-top: 1px solid var(--bs-border-color); }
+      .code-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
+    }
+    summary.card-header { cursor: pointer; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <a class="navbar-brand mb-0 h5" href="../index.html" title="Volver a todas las herramientas"><span class="opacity-75 me-1">←</span>💰 Branch & Bound — Mochila 0/1</a>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">B&B · O(n·2ⁿ)</span>
+      <span class="badge bg-success" v-if="currentStep" title="Mejor beneficio factible encontrado hasta ahora">mejor = {{ fmtBest(currentStep.best) }}</span>
+      <select class="form-select form-select-sm" style="width:auto" v-model="strategy" @change="onStrategyChange" title="Estructura de pendientes: en qué orden se exploran los nodos">
+        <option v-for="(s, key) in STRATEGIES" :key="key" :value="key">{{ s.name }}</option>
+      </select>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-light" @click="restartAnimation" title="Reiniciar animación (mismos datos)">⏮</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente">⏩</button>
+      </div>
+      <input type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
+        v-model.number="speedMs" title="Velocidad de reproducción" />
+      <button class="btn btn-sm btn-outline-light" @click="fitToView" title="Ajustar vista (arrastrar para mover, rueda para zoom)">🎯</button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleView"
+        :title="viewMode === 'list' ? 'Vista de lista (como el comando tree): clic para volver al árbol' : 'Vista de árbol: clic para verlo como lista (como el comando tree), que escala mejor'">{{ viewMode === 'list' ? '📂 Lista' : '🌳 Árbol' }}</button>
+      <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="showEditor = !showEditor" title="Cambiar los ítems y la capacidad">✏️ Datos</button>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver al ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir estos datos">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="main-row">
+    <div class="left-col">
+      <div class="top-row">
+        <div class="tree-area">
+          <div class="tree-view" ref="treeViewEl">
+            <svg v-if="currentStep" :class="{ panning: isPanning }"
+              @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="onPointerUp" @pointercancel="onPointerUp"
+              @wheel.prevent="onWheel">
+              <g :transform="`translate(${camera.x}, ${camera.y}) scale(${camera.scale})`">
+                <g v-for="n in visibleNodes.filter(n => n.parent !== null)" :key="`e${n.id}`">
+                  <path class="bn-edge" :class="{ active: currentStep.inserted === n.id }" :style="`d: path('${edgePath(n)}')`" />
+                  <text class="bn-edge-label" text-anchor="middle" dominant-baseline="central"
+                    :style="`transform: translate(${labelPos(n).x}px, ${labelPos(n).y}px)`">{{ n.inc ? '+' : '−' }}{{ items[n.depth - 1].i }}</text>
+                </g>
+                <g v-for="n in visibleNodes" :key="n.id" :data-node-id="n.id" style="cursor: pointer;" class="bn-node" :class="nodeClass(n)" :style="`transform: translate(${pos(n).x}px, ${pos(n).y}px)`">
+                  <title>{{ nodeTitle(n) }}</title>
+                  <rect class="bn-box" :x="-layout.boxW / 2" :y="-BOX_H / 2" :width="layout.boxW" :height="BOX_H" rx="6" />
+                  <text class="bn-text" text-anchor="middle" y="-11">{{ n.label }}</text>
+                  <text class="bn-text" text-anchor="middle" y="5">{{ money(n.profit) }} / {{ money(n.bound) }}</text>
+                  <text class="bn-text" text-anchor="middle" y="20">peso {{ n.weight }} / {{ capacity }}</text>
+                  <g class="bn-order" v-if="currentStep.order[n.id]" :transform="`translate(${layout.boxW / 2 - 4}, ${-BOX_H / 2})`">
+                    <circle r="11" />
+                    <text text-anchor="middle" dominant-baseline="central">{{ currentStep.order[n.id] }}</text>
+                  </g>
+                  <g class="bn-mark" :class="markOf(n)" v-if="markOf(n)" :transform="`translate(${-layout.boxW / 2 + 2}, ${BOX_H / 2 - 2})`">
+                    <circle r="10" />
+                    <text text-anchor="middle" dominant-baseline="central">{{ MARKS[markOf(n)] }}</text>
+                  </g>
+                </g>
+              </g>
+            </svg>
+          </div>
+
+          <div class="card shadow-sm editor-panel" v-if="showEditor">
+            <div class="card-body p-2">
+              <label class="form-label small text-muted mb-1">Ítems como <code>beneficio:peso</code> (enteros positivos, hasta {{ MAX_ITEMS }}), separados por coma:</label>
+              <input class="form-control form-control-sm mb-2 font-monospace" v-model="itemsDraft" @keydown.enter="applyDraft" />
+              <label class="form-label small text-muted mb-1">Capacidad W (el peso no puede superarla):</label>
+              <input class="form-control form-control-sm mb-2" type="number" min="0" step="1" v-model="capacityDraft" @keydown.enter="applyDraft" />
+              <div class="form-check small mb-2">
+                <input class="form-check-input" type="checkbox" id="sort-ratio" v-model="sortDraft" />
+                <label class="form-check-label" for="sort-ratio">Ordenar los ítems por p/w de mayor a menor</label>
+              </div>
+              <div class="alert alert-danger small py-1 px-2 mb-2" v-if="draftError">{{ draftError }}</div>
+              <button class="btn btn-dark btn-sm w-100" @click="applyDraft">▶ Aplicar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="data-panel" v-if="currentStep">
+          <div class="card mb-2">
+            <div class="card-header py-1 px-2 small fw-semibold">📥 Pendientes ({{ STRATEGIES[strategy].struct }})</div>
+            <div class="card-body p-2">
+              <table class="table table-sm table-bordered text-center mb-0 mini-table small">
+                <thead>
+                  <tr><th class="dp-header-cell">nodo</th><th class="dp-header-cell">valor / cota</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!currentStep.pending.length"><td colspan="2" class="text-muted">(vacía)</td></tr>
+                  <tr v-for="(id, idx) in currentStep.pending" :key="id">
+                    <td class="font-monospace text-start">{{ nodes[id].label }} <span class="badge bg-primary" v-if="idx === 0" title="Es el próximo en salir">sale</span></td>
+                    <td class="text-nowrap">{{ money(nodes[id].profit) }} / {{ money(nodes[id].bound) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="small text-muted mt-1 mb-0">En el orden en que van a salir.</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header py-1 px-2 small fw-semibold">★ Mejor</div>
+            <div class="card-body p-2 small">
+              <div>mejor = <b>{{ fmtBest(currentStep.best) }}</b></div>
+              <div>mejorSolucion = <span class="font-monospace">{{ currentStep.bestId === null ? '—' : fmtChosen(nodes[currentStep.bestId]) }}</span></div>
+              <div class="text-muted mt-1">Generados: {{ visibleNodes.length }} de {{ maxNodes }} nodos posibles</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="trace-wrap" v-if="currentStep">
+        <div class="card">
+          <div class="card-header py-1 px-2 small fw-semibold">📋 Seguimiento por paso</div>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered text-center align-middle mb-0 small">
+              <thead>
+                <tr>
+                  <th class="dp-header-cell" title="Número de paso: uno por cada nodo que sale de pendientes">Paso</th>
+                  <th class="dp-header-cell" title="Nodo que sale de pendientes">Sale</th>
+                  <th class="dp-header-cell">Valor / cota</th>
+                  <th class="dp-header-cell">Peso</th>
+                  <th class="dp-header-cell" title="Valor de mejor después de procesar el nodo">mejor</th>
+                  <th class="dp-header-cell">Qué pasa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!currentStep.rows.length"><td colspan="6" class="text-muted">(todavía no salió ningún nodo)</td></tr>
+                <tr v-for="(row, idx) in currentStep.rows" :key="idx"
+                  :class="{ 'row-open': idx === currentStep.rows.length - 1 && currentStep.current !== null, 'row-selected': pinnedVisible && row.id === pinnedId }">
+                  <td class="step-link" @click="selectRow(row)" title="Marcar este nodo en el árbol">{{ row.k }}</td>
+                  <td class="font-monospace text-start">{{ row.label }}</td>
+                  <td class="text-nowrap">{{ money(row.profit) }} / {{ money(row.bound) }}</td>
+                  <td>{{ row.weight }}</td>
+                  <td :class="{ 'cell-final fw-bold': row.star }">{{ fmtBest(row.best) }}{{ row.star ? ' ★' : '' }}</td>
+                  <td class="text-start">{{ row.what }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-panel">
+      <div class="p-3">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">💻 Pseudocódigo</div>
+          <div class="card-body p-0">
+            <div class="pseudo-code">
+              <div v-for="(line, idx) in pseudocode" :key="idx" class="pseudo-line"
+                :class="{ 'pseudo-active': currentStep && currentStep.activeLines.includes(idx) }">{{ line }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">🧩 Funciones para la mochila 0/1</div>
+          <div class="card-body p-2">
+            <table class="table table-sm table-bordered text-center align-middle mb-2 small mini-table" style="width: auto;">
+              <thead><tr><th class="dp-header-cell">i</th><th class="dp-header-cell">p</th><th class="dp-header-cell">w</th><th class="dp-header-cell">p/w</th></tr></thead>
+              <tbody>
+                <tr v-for="it in items" :key="it.i"><td class="dp-header-cell">{{ it.i }}</td><td>{{ money(it.p) }}</td><td>{{ it.w }}</td><td>{{ fmtNum(it.p / it.w) }}</td></tr>
+              </tbody>
+            </table>
+            <p class="small mb-2">En el orden del árbol · W = {{ capacity }}</p>
+            <table class="table table-sm table-bordered align-middle mb-0 small">
+              <tbody>
+                <tr><td class="font-monospace">HijosDe(nodo)</td><td>incluir o no incluir el siguiente ítem</td></tr>
+                <tr><td class="font-monospace">EsFactible(nodo)</td><td>peso ≤ {{ capacity }}</td></tr>
+                <tr><td class="font-monospace">EsSolucion(nodo)</td><td>siempre: toda selección factible es una solución</td></tr>
+                <tr><td class="font-monospace">Valor(nodo)</td><td>el beneficio</td></tr>
+                <tr><td class="font-monospace">Cota(nodo)</td><td>beneficio + mochila fraccionaria con los ítems que faltan: se toman por p/w de mayor a menor, enteros mientras entren, y del primero que no entra la fracción que cabe (0 si es infactible)</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">🔍 Explicación</div>
+          <div class="card-body">
+            <div v-if="currentStep">
+              <span class="badge fs-6 text-wrap text-start" :class="currentStep.badge.cls">{{ currentStep.badge.icon }} {{ currentStep.badge.text }}</span>
+            </div>
+            <p class="small text-muted mt-3 mb-0" v-if="currentStep">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
+          </div>
+        </div>
+
+        <details class="card mb-3">
+          <summary class="card-header fw-semibold">⏱️ Complejidad: <span v-html="tex(complexity.total)"></span></summary>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered align-middle mb-2 small">
+              <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                  <td class="font-monospace">{{ r[0] }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }" v-html="tex(c)"></td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="small mb-0" v-html="texInline(complexity.note)"></p>
+          </div>
+        </details>
+
+        <div class="card">
+          <div class="card-header fw-semibold">Leyenda</div>
+          <ul class="list-group list-group-flush small">
+            <li class="list-group-item"><span class="font-monospace">{1, !2}</span> incluye el ítem 1 y no el 2; abajo, <span class="font-monospace">valor / cota</span> y <span class="font-monospace">peso / W</span></li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box pending"></span> En pendientes</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box current"></span> Nodo que acaba de salir</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box"></span> Ya salió</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box best"></span> Mejor solución hasta ahora (★)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box pinned"></span> Nodo seleccionado con un clic (o en su paso de la tabla): su paso queda resaltado</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill border text-body">3</span> Paso en que salió de pendientes</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-dark">✗</span> Infactible (peso &gt; W)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill bg-danger-subtle text-danger-emphasis border border-danger">✂</span> Poda por cota (cota ≤ mejor)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar text-center small border-top">
+    <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } = Vue;
+
+const MAX_ITEMS = 6;
+// El ejemplo de la teoría (Neapolitan): ítems ya ordenados por p/w, W = 16, recorrido en anchura.
+const DEFAULT_STATE = { items: [{ p: 40, w: 2 }, { p: 30, w: 5 }, { p: 50, w: 10 }, { p: 10, w: 5 }], capacity: 16, strategy: 'fifo', sortRatio: false };
+
+// Lo único que cambia entre estrategias es la estructura de pendientes (líneas 0, 2 y 4 del pseudocódigo).
+const STRATEGIES = {
+  best: { name: 'Best-First', fn: 'BestFirst', init: 'ColaDePrioridad', take: 'ExtraerMayorCota', struct: 'cola de prioridad' },
+  fifo: { name: 'FIFO (cola)', fn: 'FIFO', init: 'Cola', take: 'Desencolar', struct: 'cola' },
+  lifo: { name: 'LIFO (pila)', fn: 'LIFO', init: 'Pila', take: 'Desapilar', struct: 'pila' },
+};
+function pseudocodeFor(strategy) {
+  const s = STRATEGIES[strategy];
+  return [
+    `ALGORITMO BranchAndBound_${s.fn}(raíz)`,
+    '  mejor ← −∞',
+    `  pendientes ← ${s.init} con raíz`,
+    '  MIENTRAS pendientes no esté vacía HACER',
+    `    nodo ← ${s.take}(pendientes)`,
+    '',
+    '    SI NO EsFactible(nodo) O Cota(nodo) ≤ mejor ENTONCES',
+    '      CONTINUAR',
+    '    SI EsSolucion(nodo) Y Valor(nodo) > mejor ENTONCES',
+    '      mejor ← Valor(nodo)',
+    '      mejorSolucion ← nodo',
+    '    PARA CADA hijo EN HijosDe(nodo) HACER',
+    '      Insertar(pendientes, hijo)',
+    '  RETORNAR mejorSolucion',
+  ];
+}
+
+const MARKS = { infeasible: '✗', pruned: '✂', best: '★' };
+function fmtNum(x) { return Number.isInteger(x) ? String(x) : String(+x.toFixed(2)); }
+function money(x) { return `$${fmtNum(x)}`; }
+function fmtBest(v) { return v === -Infinity ? '−∞' : money(v); }
+function fmtItems(items) { return items.map(it => `${it.p}:${it.w}`).join(', '); }
+// {1, !2}: las decisiones tomadas hasta el nodo, con el número de cada ítem ("!" = no lo incluye).
+function fmtDecisions(items, picks) { return `{${picks.map((p, k) => (p ? '' : '!') + items[k].i).join(', ')}}`; }
+// {1, 3}: solo los ítems elegidos.
+function fmtChosen(items, node) { return `{${node.picks.flatMap((p, k) => p ? [items[k].i] : []).join(', ')}}`; }
+
+// Cota: mochila fraccionaria con los ítems que faltan decidir, tomados por p/w de mayor a menor
+// (enteros mientras entren, y del primero que no entra la fracción que cabe). Devuelve también la cuenta.
+function fractionalBound(items, W, depth, profit, weight) {
+  const rest = items.slice(depth).sort((a, b) => b.p / b.w - a.p / a.w);
+  let cap = W - weight, bound = profit;
+  const terms = [money(profit)];
+  for (const it of rest) {
+    if (cap <= 0) break;
+    if (it.w <= cap) { bound += it.p; cap -= it.w; terms.push(money(it.p)); }
+    else { bound += it.p * cap / it.w; terms.push(`${cap}/${it.w}·${money(it.p)}`); break; }
+  }
+  return { bound, calc: terms.join(' + ') };
+}
+
+// ── Corre el algoritmo una vez (versión corta: los hijos entran siempre a pendientes y se filtran al salir)
+// y devuelve todos los nodos generados más un snapshot por punto de parada.
+function computeSteps(items, W, strategy) {
+  const n = items.length;
+  const nodes = [];
+  function makeNode(parent, inc) {
+    const depth = parent ? parent.depth + 1 : 0;
+    const picks = parent ? [...parent.picks, inc] : [];
+    const it = items[depth - 1];
+    const profit = parent ? parent.profit + (inc ? it.p : 0) : 0;
+    const weight = parent ? parent.weight + (inc ? it.w : 0) : 0;
+    const feasible = weight <= W;
+    const { bound, calc } = feasible ? fractionalBound(items, W, depth, profit, weight) : { bound: 0, calc: '' };
+    const node = { id: nodes.length, parent: parent ? parent.id : null, depth, inc, picks, profit, weight, feasible,
+      bound, calc, label: fmtDecisions(items, picks) };
+    nodes.push(node);
+    return node;
+  }
+
+  // ponytail: pendientes = array y búsqueda lineal del máximo; alcanza para 2⁷ − 1 nodos.
+  const pending = [];
+  function take() {
+    if (strategy === 'fifo') return { node: pending.shift() };
+    if (strategy === 'lifo') return { node: pending.pop() };
+    let k = 0; // el primero con la mayor cota: ante un empate, sale el que entró primero
+    pending.forEach((p, i) => { if (p.bound > pending[k].bound) k = i; });
+    const node = pending.splice(k, 1)[0];
+    return { node, tie: pending.some(p => p.bound === node.bound) };
+  }
+  function pendingInOrder() {
+    if (strategy === 'fifo') return pending.map(p => p.id);
+    if (strategy === 'lifo') return pending.map(p => p.id).reverse();
+    return pending.map((p, i) => ({ p, i })).sort((a, b) => b.p.bound - a.p.bound || a.i - b.i).map(x => x.p.id);
+  }
+
+  const steps = [];
+  const status = {}, order = {}, rows = [];
+  let best = -Infinity, bestId = null, current = null, inserted = null;
+  function snapshot(activeLines, badge) {
+    steps.push({ activeLines, status: { ...status }, order: { ...order }, pending: pendingInOrder(),
+      best, bestId, current, inserted, rows: rows.map(r => ({ ...r })), badge });
+  }
+
+  snapshot([1], { icon: '🏁', text: 'mejor arranca en −∞: la primera solución factible que aparezca lo va a mejorar.', cls: 'bg-secondary' });
+  const root = makeNode(null);
+  pending.push(root);
+  status[root.id] = 'pending';
+  snapshot([2], { icon: '🌱', text: `La raíz {} (todavía no se decidió ningún ítem) entra a pendientes: valor $0, peso 0, cota ${root.calc} = ${money(root.bound)}.`, cls: 'bg-primary' });
+
+  let k = 0, cutNoted = false;
+  while (pending.length) {
+    const { node, tie } = take();
+    const { label, profit, weight, bound } = node;
+    order[node.id] = ++k;
+    status[node.id] = 'out';
+    current = node.id;
+    inserted = null;
+    const row = { id: node.id, k, label, profit, weight, bound, best, star: false, what: '' };
+    rows.push(row);
+    const why = strategy === 'best' ? `Es el de mayor cota en pendientes${tie ? ' (empata con otro: sale el que entró primero)' : ''}.`
+      : strategy === 'fifo' ? 'Es el que entró primero a la cola.' : 'Es el último que entró a la pila.';
+    snapshot([3, 4], { icon: '📤', text: `Paso ${k}: sale ${label} con valor ${money(profit)}, peso ${weight} y cota ${money(bound)}. ${why}`, cls: 'bg-warning text-dark' });
+
+    if (!node.feasible) {
+      status[node.id] = 'infeasible';
+      row.what = `infactible: peso ${weight} > ${W}`;
+      snapshot([6, 7], { icon: '✗', text: `${label} es infactible: peso ${weight} > ${W}. Se descarta (CONTINUAR) sin generar sus hijos. Entró a pendientes igual porque recién se chequea al salir.`, cls: 'bg-dark' });
+      continue;
+    }
+    if (bound <= best) {
+      status[node.id] = 'pruned';
+      row.what = `poda: cota ${money(bound)} ≤ ${money(best)}`;
+      let text = `Poda por cota: aun llenando lo que queda de la mochila con lo mejor que falta (fraccionando el último), desde ${label} se llega como mucho a ${money(bound)} ≤ mejor = ${money(best)}. No puede mejorar: se descarta.`;
+      if (strategy === 'best' && !cutNoted) {
+        cutNoted = true;
+        text += ` Con Best-First acá ya se podría terminar: todo lo que queda en pendientes tiene cota ≤ ${money(bound)}.`;
+      }
+      snapshot([6, 7], { icon: '✂', text, cls: 'bg-danger' });
+      continue;
+    }
+    snapshot([6], { icon: '✔️', text: `${label} es factible (peso ${weight} ≤ ${W}) y su cota ${money(bound)} > mejor = ${fmtBest(best)}: puede llevar a algo mejor, se sigue.`, cls: 'bg-info text-dark' });
+
+    if (profit > best) {
+      const prev = best;
+      best = profit;
+      bestId = node.id;
+      row.best = best;
+      row.star = true;
+      snapshot([8, 9, 10], { icon: '★', text: `Toda selección factible es solución, y su valor ${money(profit)} > ${fmtBest(prev)}: mejor ← ${money(profit)}, mejorSolucion ← ${fmtChosen(items, node)}.`, cls: 'bg-success' });
+    } else {
+      snapshot([8], { icon: '➖', text: `Es solución, pero su valor ${money(profit)} no supera a mejor = ${money(best)}: no cambia nada.`, cls: 'bg-secondary' });
+    }
+
+    if (node.depth === n) {
+      row.what = 'es hoja: no tiene hijos';
+      snapshot([11], { icon: '🍂', text: `${label} ya decidió los ${n} ítems: es una hoja, no tiene hijos.`, cls: 'bg-secondary' });
+      continue;
+    }
+    const it = items[node.depth];
+    const inserts = [];
+    for (const inc of [true, false]) {
+      const child = makeNode(node, inc);
+      pending.push(child);
+      status[child.id] = 'pending';
+      inserted = child.id;
+      inserts.push(child.label);
+      row.what = `inserta ${inserts.join(' y ')}`;
+      let text = `${inc ? 'Incluye' : 'No incluye'} el ítem ${it.i} (${money(it.p)}, peso ${it.w}): ${child.label} con valor ${money(child.profit)} y peso ${child.weight}`;
+      text += child.feasible ? `; cota = ${child.calc} = ${money(child.bound)}.`
+        : ` > ${W}: infactible, cota 0. Igual entra a pendientes; se descarta recién al salir.`;
+      if (strategy === 'lifo' && !inc) text += ' Con la pila, este (el último que entró) es el próximo en salir.';
+      snapshot([11, 12], { icon: '📥', text, cls: 'bg-primary' });
+    }
+  }
+
+  current = null;
+  inserted = null;
+  snapshot([3], { icon: '🛑', text: `pendientes quedó vacía: se generaron ${nodes.length} de ${2 ** (n + 1) - 1} nodos posibles.`, cls: 'bg-secondary' });
+  const sol = nodes[bestId];
+  snapshot([13], { icon: '🏁', text: `Retorna mejorSolucion = ${fmtChosen(items, sol)}: valor ${money(sol.profit)} y peso ${sol.weight} de ${W}.`, cls: 'bg-success' });
+  return { nodes, steps };
+}
+
+// ── Layout del árbol: cada hoja ocupa una columna y cada padre queda centrado sobre sus hijos
+// (Reingold-Tilford simplificado, como recursion/call-tree.html). Se calcula sobre todos los nodos
+// de la corrida, así el árbol no se mueve mientras va apareciendo.
+const BOX_H = 54, LEVEL_H = 90, GAP = 14, PAD = 16;
+// Vista de lista (como el comando tree): sangría por nivel, alto de fila y dónde baja el codo desde el padre.
+const INDENT = 56, ROW_H = BOX_H + 10, ELBOW = 14;
+function layoutTree(nodes, W) {
+  const chars = Math.max(...nodes.map(n => Math.max(n.label.length, `${money(n.profit)} / ${money(n.bound)}`.length, `peso ${n.weight} / ${W}`.length)));
+  const boxW = Math.max(84, chars * 7.3 + 20);
+  const kids = nodes.map(() => []);
+  nodes.forEach(n => { if (n.parent !== null) kids[n.parent].push(n.id); });
+  let slot = 0;
+  function place(id) {
+    const n = nodes[id], ch = kids[id];
+    if (ch.length) { ch.forEach(place); n.x = (nodes[ch[0]].x + nodes[ch[ch.length - 1]].x) / 2; }
+    else n.x = PAD + boxW / 2 + slot++ * (boxW + GAP);
+    n.y = PAD + BOX_H / 2 + n.depth * LEVEL_H;
+  }
+  place(0);
+  const depth = Math.max(...nodes.map(n => n.depth));
+  return { boxW, width: 2 * PAD + slot * boxW + (slot - 1) * GAP, height: 2 * PAD + BOX_H + depth * LEVEL_H };
+}
+
+// "40:2, 30:5" → [{p: 40, w: 2}, {p: 30, w: 5}]
+function parseItems(text) {
+  const tokens = text.split(/[,;\n]+/).map(t => t.trim()).filter(Boolean);
+  if (!tokens.length) return { error: 'Cargá al menos un ítem.' };
+  if (tokens.length > MAX_ITEMS) return { error: `Como mucho ${MAX_ITEMS} ítems (el árbol completo tendría ${2 ** (tokens.length + 1) - 1} nodos).` };
+  const items = [];
+  for (const tok of tokens) {
+    const m = tok.match(/^\$?(\d+)\s*:\s*(\d+)$/);
+    if (!m || +m[1] <= 0 || +m[2] <= 0) return { error: `"${tok}" no es beneficio:peso con enteros positivos.` };
+    items.push({ p: +m[1], w: +m[2] });
+  }
+  return { items };
+}
+
+// Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
+function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
+// Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
+function texInline(s) {
+  return s.split('$').map((t, i) => i % 2 ? tex(t) : t.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('');
+}
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total]; veces, costo y total en LaTeX.
+const COMPLEXITY = {
+  total: "O(n \\cdot 2^n)",
+  headers: ["Línea", "Veces", "Costo"],
+  rows: [
+    ["mejor ← −∞; pendientes ← … con raíz", "1", "O(1)"],
+    ["MIENTRAS pendientes no esté vacía", "\\le 2^{n+1}", "O(2^n)"],
+    ["nodo ← ExtraerMayorCota(pendientes)", "\\le 2^{n+1} - 1", "O(n \\cdot 2^n)"],
+    ["SI NO EsFactible(nodo) O Cota(nodo) ≤ mejor", "\\le 2^{n+1} - 1", "O(2^n)"],
+    ["SI EsSolucion(nodo) Y Valor(nodo) > mejor", "\\le 2^{n+1} - 1", "O(2^n)"],
+    ["PARA CADA hijo EN HijosDe(nodo): Insertar (con su cota)", "\\le 2^{n+1} - 2", "O(n \\cdot 2^n)"],
+    ["RETORNAR mejorSolucion", "1", "O(1)"],
+  ],
+  note: "En el peor caso no se poda nada y se generan los $2^{n+1} - 1$ nodos del árbol. Si el nodo guarda beneficio, peso y profundidad, la factibilidad cuesta $O(1)$, pero la cota (mochila fraccionaria) recorre los ítems que faltan: $O(n)$ por nodo si ya están ordenados por $p/w$ (ordenarlos una vez al principio cuesta $O(n \\log n)$). Con la cola de prioridad, insertar y extraer cuestan $O(\\log 2^n) = O(n)$. Total: $O(n \\cdot 2^n)$ con cualquiera de las tres estrategias. La poda no cambia el peor caso, pero en la práctica genera muchos menos nodos. En memoria, FIFO y Best-First pueden llegar a tener $O(2^n)$ nodos pendientes a la vez; LIFO, como DFS, tiene $O(n)$.",
+};
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-bnb-knapsack';
+
+    // Estado editable (lo que se persiste) y su borrador en el panel de datos.
+    const rawItems = ref(DEFAULT_STATE.items.map(it => ({ ...it })));
+    const capacity = ref(DEFAULT_STATE.capacity);
+    const strategy = ref(DEFAULT_STATE.strategy);
+    const sortRatio = ref(DEFAULT_STATE.sortRatio);
+    const itemsDraft = ref('');
+    const capacityDraft = ref('');
+    const sortDraft = ref(false);
+    const draftError = ref('');
+    const showEditor = ref(false);
+
+    // i = número del ítem según el orden de carga; se conserva aunque se ordenen por p/w.
+    const items = computed(() => {
+      const numbered = rawItems.value.map((it, k) => ({ ...it, i: k + 1 }));
+      return sortRatio.value ? numbered.sort((a, b) => b.p / b.w - a.p / a.w) : numbered;
+    });
+    const pseudocode = computed(() => pseudocodeFor(strategy.value));
+    const maxNodes = computed(() => 2 ** (items.value.length + 1) - 1);
+
+    const nodes = ref([]);
+    const layout = ref({ boxW: 84, width: 0, height: 0 });
+    const steps = ref([]);
+    const currentStepIndex = ref(0);
+    const isPlaying = ref(false);
+    const speedMs = ref(700);
+    let playTimer = null;
+
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+    const treeViewEl = ref(null);
+    const view = { w: 800, h: 400 };
+
+    const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
+    const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
+    const visibleNodes = computed(() => currentStep.value ? nodes.value.filter(n => n.id in currentStep.value.status) : []);
+    // Nodo seleccionado con un clic (o desde su paso en la tabla); cuenta solo si ya existe en este paso.
+    const pinnedId = ref(null);
+    const pinnedVisible = computed(() => pinnedId.value !== null && currentStep.value && pinnedId.value in currentStep.value.status);
+
+    // ── Vista: árbol (posiciones fijas de layoutTree) o lista como el comando tree: una fila por nodo
+    // visible, en preorden, con sangría por profundidad. La lista se compacta: al insertar un hijo, lo de
+    // abajo baja una fila. Alcanza con transiciones CSS (transform y d) porque visibleNodes sale de nodes
+    // en orden de id y los nuevos van al final: Vue nunca reordena los <g>.
+    const viewMode = ref('tree');
+    const listLayout = computed(() => {
+      const at = {}, kids = {};
+      for (const n of visibleNodes.value) if (n.parent !== null) (kids[n.parent] ||= []).push(n.id);
+      let row = 0;
+      const half = layout.value.boxW / 2;
+      function place(id) {
+        at[id] = { x: PAD + nodes.value[id].depth * INDENT + half, y: PAD + BOX_H / 2 + row++ * ROW_H };
+        (kids[id] || []).forEach(place);
+      }
+      if (visibleNodes.value.length) place(0);
+      return at;
+    });
+    const listWidth = computed(() => 2 * PAD + Math.max(...nodes.value.map(n => n.depth)) * INDENT + layout.value.boxW);
+    function pos(n) { return viewMode.value === 'list' ? listLayout.value[n.id] : n; }
+    // Las dos vistas usan un trazo de 3 puntos (recta = codo degenerado) para que d se pueda interpolar.
+    function edgePath(n) {
+      const p = pos(nodes.value[n.parent]), c = pos(n), half = layout.value.boxW / 2;
+      if (viewMode.value === 'list') {
+        const x = p.x - half + ELBOW;
+        return `M ${x} ${p.y + BOX_H / 2} L ${x} ${c.y} L ${c.x - half} ${c.y}`;
+      }
+      return `M ${p.x} ${p.y + BOX_H / 2} L ${c.x} ${c.y - BOX_H / 2} L ${c.x} ${c.y - BOX_H / 2}`;
+    }
+    function labelPos(n) {
+      const p = pos(nodes.value[n.parent]), c = pos(n), half = layout.value.boxW / 2;
+      if (viewMode.value === 'list') return { x: (p.x + c.x) / 2 - half + ELBOW / 2, y: c.y };
+      return { x: (p.x + c.x) / 2 + (n.inc === undefined ? 0 : n.inc ? -14 : 14), y: (p.y + c.y) / 2 };
+    }
+    function toggleView() {
+      viewMode.value = viewMode.value === 'list' ? 'tree' : 'list';
+      fitToView();
+      persist();
+    }
+
+    // ── Cámara: pan arrastrando, zoom con la rueda (centrado en el cursor). No se persiste.
+    // fitToView encuadra todo el árbol (sin agrandarlo más de 1:1), salvo que el usuario haya movido la vista.
+    const camera = reactive({ x: 0, y: 0, scale: 1 });
+    let userAdjustedCamera = false;
+    // En la lista encuadra a lo ancho, arriba a la izquierda, y después sigue al paso.
+    function fitToView() {
+      if (viewMode.value === 'list') {
+        camera.scale = Math.min(1, (view.w - 16) / listWidth.value);
+        camera.x = 8;
+      } else {
+        const { width, height } = layout.value;
+        camera.scale = Math.min(1, (view.w - 16) / width, (view.h - 16) / height);
+        camera.x = (view.w - width * camera.scale) / 2;
+      }
+      camera.y = 8;
+      userAdjustedCamera = false;
+      followStep();
+    }
+    // En la lista, si el nodo del paso (el insertado o el que salió) queda fuera de pantalla, la vista
+    // lo trae a un tercio de la altura. Deja de seguir cuando el usuario mueve la vista; 🎯 lo reactiva.
+    function followStep() {
+      const s = currentStep.value;
+      if (viewMode.value !== 'list' || userAdjustedCamera || !s) return;
+      const at = listLayout.value[s.inserted ?? s.current];
+      if (!at) return;
+      const y = camera.y + at.y * camera.scale;
+      if (y < BOX_H || y > view.h - BOX_H) camera.y = view.h / 3 - at.y * camera.scale;
+    }
+    watch([currentStepIndex, viewMode], followStep);
+    const isPanning = ref(false);
+    let panStart = null;
+    function onPointerDown(e) {
+      isPanning.value = true;
+      panStart = { px: e.clientX, py: e.clientY, x: camera.x, y: camera.y };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    function onPointerMove(e) {
+      if (!isPanning.value) return;
+      camera.x = panStart.x + e.clientX - panStart.px;
+      camera.y = panStart.y + e.clientY - panStart.py;
+      if (Math.hypot(e.clientX - panStart.px, e.clientY - panStart.py) > 4) userAdjustedCamera = true;
+    }
+    // Un clic (sin arrastrar) sobre un nodo lo selecciona; en el vacío, lo suelta.
+    // El <svg> tiene la captura del puntero, así que el nodo se busca por coordenadas.
+    function onPointerUp(e) {
+      if (!isPanning.value) return;
+      isPanning.value = false;
+      if (Math.hypot(e.clientX - panStart.px, e.clientY - panStart.py) > 4) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-node-id]');
+      pinnedId.value = el ? Number(el.dataset.nodeId) : null;
+    }
+    function onKeydown(e) {
+      if (e.key === 'Escape' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) pinnedId.value = null;
+    }
+    function onWheel(e) {
+      if (viewMode.value === 'list' && !e.ctrlKey) { // en la lista la rueda hace scroll; Ctrl+rueda, zoom
+        camera.y -= e.deltaY;
+        userAdjustedCamera = true;
+        return;
+      }
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const next = Math.min(3, Math.max(0.1, camera.scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+      camera.x = mx - (mx - camera.x) * next / camera.scale;
+      camera.y = my - (my - camera.y) * next / camera.scale;
+      camera.scale = next;
+      userAdjustedCamera = true;
+    }
+
+    // Clic en el número de paso de la tabla: selecciona ese nodo y, si está fuera de pantalla, lo centra.
+    function selectRow(row) {
+      pinnedId.value = row.id;
+      const at = pos(nodes.value[row.id]);
+      const sx = camera.x + at.x * camera.scale, sy = camera.y + at.y * camera.scale;
+      if (sx < 0 || sx > view.w || sy < 0 || sy > view.h) {
+        camera.x = view.w / 2 - at.x * camera.scale;
+        camera.y = view.h / 2 - at.y * camera.scale;
+        userAdjustedCamera = true;
+      }
+    }
+    // Y al revés: al seleccionar un nodo que ya salió, su fila de seguimiento se trae a la vista.
+    watch(pinnedId, () => nextTick(() => document.querySelector('.row-selected')?.scrollIntoView({ block: 'nearest' })));
+
+    function nodeClass(n) {
+      const s = currentStep.value;
+      return {
+        'bn-pending': s.status[n.id] === 'pending',
+        'bn-best': s.bestId === n.id,
+        'bn-current': s.current === n.id,
+        'bn-pinned': pinnedVisible.value && pinnedId.value === n.id,
+      };
+    }
+    function markOf(n) {
+      const s = currentStep.value;
+      if (s.bestId === n.id) return 'best';
+      return ['infeasible', 'pruned'].includes(s.status[n.id]) ? s.status[n.id] : null;
+    }
+    function nodeTitle(n) {
+      const s = currentStep.value;
+      const st = { pending: 'en pendientes', out: 'ya salió', infeasible: 'infactible', pruned: 'podado por cota' }[s.status[n.id]];
+      return `${n.label}: valor ${money(n.profit)}, peso ${n.weight}, cota ${money(n.bound)} — ${st}${s.order[n.id] ? ` (salió en el paso ${s.order[n.id]})` : ''}. Clic para resaltar su paso en la tabla.`;
+    }
+
+    // ── Persistencia ──
+    function currentState() {
+      return { items: rawItems.value, capacity: capacity.value, strategy: strategy.value, sortRatio: sortRatio.value, view: viewMode.value };
+    }
+    function applyState(data) {
+      const parsed = parseItems(fmtItems(data.items ?? rawItems.value));
+      rawItems.value = parsed.items ?? rawItems.value;
+      const t = Number(data.capacity ?? capacity.value);
+      capacity.value = Number.isInteger(t) && t >= 0 ? t : capacity.value;
+      strategy.value = STRATEGIES[data.strategy] ? data.strategy : strategy.value;
+      sortRatio.value = !!(data.sortRatio ?? sortRatio.value);
+      itemsDraft.value = fmtItems(rawItems.value);
+      capacityDraft.value = String(capacity.value);
+      sortDraft.value = sortRatio.value;
+      draftError.value = '';
+      viewMode.value = ['tree', 'list'].includes(data.view) ? data.view : viewMode.value;
+      regenerateSteps();
+    }
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
+    }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) { resetToDefault(); return; }
+        applyState(JSON.parse(raw));
+      } catch (e) { resetToDefault(); }
+    }
+
+    // ── Compartir por URL (#d=...) ──
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer la configuración de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo" (2 pasos) ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { if (newConfirm.value) newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      newConfirm.value = false;
+      applyState(DEFAULT_STATE);
+      persist();
+    }
+
+    // ── Editar datos ──
+    function applyDraft() {
+      const { items: parsed, error } = parseItems(itemsDraft.value);
+      const t = Number(capacityDraft.value);
+      draftError.value = error || (String(capacityDraft.value).trim() === '' || !Number.isInteger(t) || t < 0 ? 'W tiene que ser un entero ≥ 0.' : '');
+      if (draftError.value) return;
+      applyState({ items: parsed, capacity: t, strategy: strategy.value, sortRatio: sortDraft.value });
+      persist();
+    }
+    function onStrategyChange() {
+      regenerateSteps();
+      persist();
+    }
+
+    // ── Reproducción ──
+    function regenerateSteps() {
+      const run = computeSteps(items.value, capacity.value, strategy.value);
+      layout.value = layoutTree(run.nodes, capacity.value);
+      nodes.value = run.nodes;
+      steps.value = run.steps;
+      currentStepIndex.value = 0;
+      pinnedId.value = null;
+      stopAutoplay();
+      fitToView();
+    }
+    function goToStep(i) {
+      currentStepIndex.value = Math.max(0, Math.min(steps.value.length - 1, i));
+    }
+    function stepForward() { if (!isAtEnd.value) goToStep(currentStepIndex.value + 1); else stopAutoplay(); }
+    function stepBackward() { goToStep(currentStepIndex.value - 1); }
+    function restartAnimation() { stopAutoplay(); goToStep(0); }
+    function stopAutoplay() {
+      isPlaying.value = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    }
+    function togglePlay() {
+      if (isPlaying.value) { stopAutoplay(); return; }
+      if (isAtEnd.value) goToStep(0);
+      isPlaying.value = true;
+      playTimer = setInterval(() => {
+        if (isAtEnd.value) { stopAutoplay(); return; }
+        stepForward();
+      }, speedMs.value);
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+    }
+
+    // ── Ciclo de vida ──
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      view.w = entry.contentRect.width;
+      view.h = entry.contentRect.height;
+      if (!userAdjustedCamera) fitToView();
+    });
+    loadInitialState();
+    onMounted(() => {
+      resizeObserver.observe(treeViewEl.value);
+      window.addEventListener('keydown', onKeydown);
+    });
+    onBeforeUnmount(() => {
+      resizeObserver.disconnect();
+      window.removeEventListener('keydown', onKeydown);
+      stopAutoplay();
+    });
+
+    return {
+      complexity: COMPLEXITY, tex, texInline,
+      STRATEGIES, MARKS, MAX_ITEMS, BOX_H, strategy, onStrategyChange, pseudocode,
+      items, capacity, maxNodes, nodes, layout, visibleNodes, treeViewEl,
+      camera, isPanning, fitToView, selectRow, viewMode, toggleView, pos, edgePath, labelPos, onPointerDown, onPointerMove, onPointerUp, onWheel,
+      nodeClass, markOf, nodeTitle, pinnedId, pinnedVisible, fmtBest, money, fmtNum, fmtChosen: node => fmtChosen(items.value, node),
+      steps, currentStepIndex, currentStep, isAtEnd,
+      isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,
+      showEditor, itemsDraft, capacityDraft, sortDraft, draftError, applyDraft,
+      newConfirm, handleNewClick, shareCopied, shareCurrentState,
+      isDark, toggleTheme,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

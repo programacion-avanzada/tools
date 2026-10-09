@@ -139,6 +139,7 @@ El heap permite:
 | Archivo | Tema | Complejidad |
 |---|---|---|
 | [`bnb/subset-sum.html`](bnb/subset-sum.html) | Suma de subconjuntos (Best-First, FIFO o LIFO) | O(2ⁿ) nodos en el peor caso |
+| [`bnb/knapsack.html`](bnb/knapsack.html) | Mochila 0/1 con cota de mochila fraccionaria (Best-First, FIFO o LIFO) | O(n·2ⁿ) |
 
 Permite:
 - Cargar los números (hasta 6) y el objetivo W, con la opción de ordenarlos de mayor a menor antes de armar el árbol.
@@ -150,6 +151,11 @@ Permite:
 - Vista alternativa "📂 Lista" (botón 🌳 Árbol / 📂 Lista): el mismo árbol como el comando `tree`, un nodo por fila con sangría por nivel, que no se ensancha. Las filas se compactan (al insertar un hijo, lo de abajo baja, animado), la rueda hace scroll (Ctrl+rueda, zoom) y la vista acompaña al paso actual hasta que la movés. La vista elegida se recuerda y viaja en el link de Compartir.
 - Clic en un nodo: queda seleccionado y se resalta su paso en la tabla de seguimiento; al revés, clic en el número de paso de la tabla selecciona (y centra) el nodo. Escape o clic en el vacío lo suelta.
 - Autoplay, autoguardado, "🆕 Nuevo", "🔗 Compartir" y modo claro/oscuro como el resto.
+
+La mochila 0/1 es la misma herramienta con otro problema:
+- Los ítems se cargan como `beneficio:peso` (`40:2, 30:5, 50:10, 10:5`) con la capacidad W, y se muestran en una tabla i | p | w | p/w. La opción de ordenar los ordena por p/w; cada ítem conserva su número.
+- Cada nodo muestra `{1, !2}`, `valor / cota` y el peso contra la capacidad (`peso 17 / 16`), así se ve a simple vista si se descarta por infactible o por cota. La cota es la de la mochila fraccionaria con los ítems que faltan (por p/w, enteros mientras entren y la fracción del primero que no entra), y la explicación muestra la cuenta: `$40 + $30 + 9/10·$50 = $115`.
+- El ejemplo por defecto es el de la teoría (W = 16, recorrido en anchura): genera los mismos 17 nodos que el árbol de Neapolitan y llega a {1, 3} = $90.
 
 ### Programación Dinámica
 
