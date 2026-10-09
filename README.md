@@ -134,6 +134,23 @@ El heap permite:
 - Tira con los mínimos extraídos, en el orden en que salieron.
 - Historial de operaciones clickeable, autoplay con velocidad ajustable, autoguardado, "🆕 Nuevo", "🔗 Compartir" y modo claro/oscuro como el resto.
 
+### Branch & Bound
+
+| Archivo | Tema | Complejidad |
+|---|---|---|
+| [`bnb/subset-sum.html`](bnb/subset-sum.html) | Suma de subconjuntos (Best-First, FIFO o LIFO) | O(2ⁿ) nodos en el peor caso |
+
+Permite:
+- Cargar los números (hasta 6) y el objetivo W, con la opción de ordenarlos de mayor a menor antes de armar el árbol.
+- Elegir cómo se guardan los pendientes: cola de prioridad por mayor cota (Best-First; ante un empate sale el que entró primero), cola (FIFO) o pila (LIFO). Solo cambian dos líneas del pseudocódigo.
+- Ver crecer el árbol de estados paso a paso. Cada nodo muestra `{10, !8}` y `suma / cota`, el número de paso en que salió de pendientes y una marca: ✗ infactible, ✂ podado por cota o ★ mejor solución.
+- Seguir el pseudocódigo con la línea activa, la tabla de funciones del problema (HijosDe, EsFactible, EsSolucion, Valor, Cota), los pendientes en el orden en que van a salir, `mejor`/`mejorSolucion` y una tabla de seguimiento por paso.
+- Ver el costo de la versión corta, en la que los infactibles entran a la cola y se descartan recién al salir. Con Best-First, además, la explicación marca el primer momento en que ya se podría terminar.
+- Zoom con la rueda del mouse (centrado en el cursor) y arrastrar para mover el árbol; 🎯 vuelve a encuadrarlo entero.
+- Vista alternativa "📂 Lista" (botón 🌳 Árbol / 📂 Lista): el mismo árbol como el comando `tree`, un nodo por fila con sangría por nivel, que no se ensancha. Las filas se compactan (al insertar un hijo, lo de abajo baja, animado), la rueda hace scroll (Ctrl+rueda, zoom) y la vista acompaña al paso actual hasta que la movés. La vista elegida se recuerda y viaja en el link de Compartir.
+- Clic en un nodo: queda seleccionado y se resalta su paso en la tabla de seguimiento; al revés, clic en el número de paso de la tabla selecciona (y centra) el nodo. Escape o clic en el vacío lo suelta.
+- Autoplay, autoguardado, "🆕 Nuevo", "🔗 Compartir" y modo claro/oscuro como el resto.
+
 ### Programación Dinámica
 
 | Archivo | Tema | Complejidad |
