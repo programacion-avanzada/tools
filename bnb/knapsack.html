@@ -175,7 +175,7 @@
                   <tr v-if="!currentStep.pending.length"><td colspan="2" class="text-muted">(vacía)</td></tr>
                   <tr v-for="(id, idx) in currentStep.pending" :key="id">
                     <td class="font-monospace text-start">{{ nodes[id].label }} <span class="badge bg-primary" v-if="idx === 0" title="Es el próximo en salir">sale</span></td>
-                    <td class="text-nowrap">{{ money(nodes[id].profit) }} / {{ money(nodes[id].bound) }}</td>
+                    <td class="text-nowrap font-monospace">{{ money(nodes[id].profit) }} / {{ money(nodes[id].bound) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -213,11 +213,11 @@
                 <tr v-if="!currentStep.rows.length"><td colspan="6" class="text-muted">(todavía no salió ningún nodo)</td></tr>
                 <tr v-for="(row, idx) in currentStep.rows" :key="idx"
                   :class="{ 'row-open': idx === currentStep.rows.length - 1 && currentStep.current !== null, 'row-selected': pinnedVisible && row.id === pinnedId }">
-                  <td class="step-link" @click="selectRow(row)" title="Marcar este nodo en el árbol">{{ row.k }}</td>
+                  <td class="step-link font-monospace" @click="selectRow(row)" title="Marcar este nodo en el árbol">{{ row.k }}</td>
                   <td class="font-monospace text-start">{{ row.label }}</td>
-                  <td class="text-nowrap">{{ money(row.profit) }} / {{ money(row.bound) }}</td>
-                  <td>{{ row.weight }}</td>
-                  <td :class="{ 'cell-final fw-bold': row.star }">{{ fmtBest(row.best) }}{{ row.star ? ' ★' : '' }}</td>
+                  <td class="text-nowrap font-monospace">{{ money(row.profit) }} / {{ money(row.bound) }}</td>
+                  <td class="font-monospace">{{ row.weight }}</td>
+                  <td class="font-monospace" :class="{ 'cell-final fw-bold': row.star }">{{ fmtBest(row.best) }}{{ row.star ? ' ★' : '' }}</td>
                   <td class="text-start">{{ row.what }}</td>
                 </tr>
               </tbody>

@@ -188,7 +188,7 @@
                 :title="pinnedVisible ? 'Fijado con un clic; Escape o clic en el vacío para soltarlo' : 'Sigue al paso actual; clic en un nodo para fijarlo'">{{ pinnedVisible ? 'fijado' : 'paso actual' }}</span>
             </div>
             <div class="card-body p-2">
-              <table class="table table-sm table-bordered mb-1 small mx">
+              <table class="table table-sm table-bordered mb-1 small mx font-monospace">
                 <thead><tr><th class="dp-header-cell"></th><th class="dp-header-cell" v-for="(_, c) in matrix" :key="c">{{ c + 1 }}</th></tr></thead>
                 <tbody>
                   <tr v-for="(row, r) in matrix" :key="r">
@@ -235,7 +235,7 @@
                   <tr v-if="!currentStep.pending.length"><td colspan="2" class="text-muted">(vacía)</td></tr>
                   <tr v-for="(id, idx) in currentStep.pending" :key="id">
                     <td class="font-monospace text-start">{{ nodes[id].label }} <span class="badge bg-primary" v-if="idx === 0" title="Es el próximo en salir">sale</span></td>
-                    <td class="text-nowrap">{{ nodes[id].detail }}</td>
+                    <td class="text-nowrap font-monospace">{{ nodes[id].detail }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -272,10 +272,10 @@
                 <tr v-if="!currentStep.rows.length"><td colspan="5" class="text-muted">(todavía no salió ningún nodo)</td></tr>
                 <tr v-for="(row, idx) in currentStep.rows" :key="idx"
                   :class="{ 'row-open': idx === currentStep.rows.length - 1 && currentStep.current !== null, 'row-selected': pinnedVisible && row.id === pinnedId }">
-                  <td class="step-link" @click="selectRow(row)" title="Marcar este nodo en el árbol">{{ row.k }}</td>
+                  <td class="step-link font-monospace" @click="selectRow(row)" title="Marcar este nodo en el árbol">{{ row.k }}</td>
                   <td class="font-monospace text-start">{{ row.label }}</td>
-                  <td class="text-nowrap">{{ row.detail }}</td>
-                  <td :class="{ 'cell-final fw-bold': row.star }">{{ fmtBest(row.best) }}{{ row.star ? ' ★' : '' }}</td>
+                  <td class="text-nowrap font-monospace">{{ row.detail }}</td>
+                  <td class="font-monospace" :class="{ 'cell-final fw-bold': row.star }">{{ fmtBest(row.best) }}{{ row.star ? ' ★' : '' }}</td>
                   <td class="text-start">{{ row.what }}</td>
                 </tr>
               </tbody>
