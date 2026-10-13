@@ -22,12 +22,16 @@
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
 
   <style>
-    .dp-cell { cursor: pointer; transition: background-color .15s; min-width: 80px; }
+    .dp-cell { cursor: pointer; transition: background-color .15s; min-width: 80px; height: 3.2rem; }
     .dp-cell:hover { background-color: var(--bs-tertiary-bg) !important; }
     .cell-selected { background-color: var(--bs-success-bg-subtle) !important; outline: 2px solid var(--bs-success-border-subtle); }
     .cell-dep-skip { background-color: var(--bs-primary-bg-subtle) !important; outline: 2px solid var(--bs-primary-border-subtle); }
     .cell-dep-take { background-color: var(--bs-warning-bg-subtle) !important; outline: 2px solid var(--bs-warning-border-subtle); }
     .cell-vec { font-size: 0.7rem; letter-spacing: 0.1em; }
+    .pseudo-code { font-family: Consolas, monospace; font-size: .8rem; white-space: pre; padding: .5rem 0; overflow-x: auto; }
+    .pseudo-line { padding: .1rem .75rem; min-height: 1.2em; }
+    .pseudo-active { background: var(--bs-warning-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
+    .katex .cell-selected, .katex [class*='cell-dep-'] { padding: .1em .25em; border-radius: .2em; }
     summary.card-header { cursor: pointer; }
     .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
   </style>
@@ -37,8 +41,21 @@
 
   <nav class="navbar navbar-dark bg-dark px-3">
     <a class="navbar-brand mb-0 h5" href="../index.html" title="Volver a todas las herramientas"><span class="opacity-75 me-1">←</span>🎒 Mochila 0/1 — Programación Dinámica</a>
-    <div class="d-flex align-items-center gap-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
       <span class="badge bg-secondary">DP · O(n·W)</span>
+      <template v-if="steps.length">
+        <div class="btn-group btn-group-sm" title="De a cuánto avanza cada paso">
+          <button class="btn" :class="granularity === 'row' ? 'btn-light' : 'btn-outline-light'" @click="setGranularity('row')" title="Cada paso completa una fila">🔢 Por fila</button>
+          <button class="btn" :class="granularity === 'cell' ? 'btn-light' : 'btn-outline-light'" @click="setGranularity('cell')" title="Cada paso calcula una celda">🔎 Por celda</button>
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-light" @click="restartAnimation" title="Volver al principio">⏮</button>
+          <button class="btn btn-outline-light" @click="stepBackward" :disabled="isAtStart" title="Paso anterior (←)">⏪</button>
+          <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
+          <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente (→)">⏩</button>
+        </div>
+        <input type="range" class="form-range" style="width:80px" min="150" max="2000" step="50" v-model.number="speedMs" title="Velocidad de reproducción" />
+      </template>
       <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver a los valores de ejemplo">
         {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
       </button>
@@ -96,11 +113,21 @@
 
         <button class="btn btn-dark w-100 mb-3" @click="solve">▶ Resolver</button>
 
+        <div class="card mb-3" v-if="steps.length">
+          <div class="card-header fw-semibold">💻 Pseudocódigo</div>
+          <div class="card-body p-0">
+            <div class="pseudo-code">
+              <div v-for="(line, idx) in PSEUDOCODE" :key="idx" class="pseudo-line"
+                :class="{ 'pseudo-active': activeLines.includes(idx) }">{{ line }}</div>
+            </div>
+          </div>
+        </div>
+
         <div class="card" v-if="dpTable.length">
           <div class="card-header fw-semibold">Leyenda</div>
           <ul class="list-group list-group-flush small">
             <li class="list-group-item d-flex align-items-center gap-2">
-              <span class="badge bg-success">&nbsp;&nbsp;</span> Celda seleccionada
+              <span class="badge bg-success">&nbsp;&nbsp;</span> Celda en foco (la del paso o la clickeada)
             </li>
             <li class="list-group-item d-flex align-items-center gap-2">
               <span class="badge bg-primary">&nbsp;&nbsp;</span> No incluir (fila anterior, misma capacidad)
@@ -132,19 +159,25 @@
           <!-- Banner resultado -->
           <div class="card mb-3 border-success">
             <div class="card-body d-flex flex-wrap align-items-center gap-4">
-              <div>
-                <div class="text-muted small">Valor óptimo</div>
-                <div class="fs-3 fw-bold text-success">{{ optimalValue }}</div>
-              </div>
-              <div>
-                <div class="text-muted small">Peso usado</div>
-                <div class="fs-5 fw-semibold">{{ optimalWeight }} / {{ capacity }} kg</div>
-              </div>
-              <div>
-                <div class="text-muted small mb-1">Objetos seleccionados</div>
-                <div class="d-flex gap-2 flex-wrap">
-                  <span class="badge bg-success fs-6" v-for="name in optimalItems" :key="name">{{ name }}</span>
+              <template v-if="isComplete">
+                <div>
+                  <div class="text-muted small">Valor óptimo</div>
+                  <div class="fs-3 fw-bold text-success">{{ optimalValue }}</div>
                 </div>
+                <div>
+                  <div class="text-muted small">Peso usado</div>
+                  <div class="fs-5 fw-semibold">{{ optimalWeight }} / {{ capacity }} kg</div>
+                </div>
+                <div>
+                  <div class="text-muted small mb-1">Objetos seleccionados</div>
+                  <div class="d-flex gap-2 flex-wrap">
+                    <span class="badge bg-success fs-6" v-for="name in optimalItems" :key="name">{{ name }}</span>
+                  </div>
+                </div>
+              </template>
+              <div v-else class="text-muted">
+                <div class="small">Valor óptimo</div>
+                <div>Se conoce al llenar la última celda, t[{{ dpTable.length }}][{{ capacity }}].</div>
               </div>
             </div>
           </div>
@@ -161,6 +194,16 @@
                   </tr>
                 </thead>
                 <tbody>
+                  <tr>
+                    <td class="text-start small">
+                      <div class="fw-semibold">∅ (ningún elemento)</div>
+                      <div class="text-muted">i=0</div>
+                    </td>
+                    <td v-for="c in capacityCols" :key="c" class="dp-cell" :class="cellClass(-1, c)" @click="selectCell(-1, c)">
+                      <div class="fw-bold">0</div>
+                      <div class="cell-vec text-muted">{{ '0'.repeat(items.length) }}</div>
+                    </td>
+                  </tr>
                   <tr v-for="(row, ri) in dpTable" :key="ri">
                     <td class="text-start small">
                       <div class="fw-semibold">{{ rowLabel(ri) }}</div>
@@ -173,6 +216,7 @@
                       :class="cellClass(ri, ci)"
                       @click="selectCell(ri, ci)"
                     >
+                      <template v-if="isFilled(ri, ci)">
                       <div class="fw-bold">{{ cell.val }}</div>
                       <div class="cell-vec text-muted">
                         <span
@@ -181,6 +225,7 @@
                           :class="bit === '1' ? 'text-success fw-bold' : ''"
                         >{{ bit }}</span>
                       </div>
+                      </template>
                     </td>
                   </tr>
                 </tbody>
@@ -188,18 +233,25 @@
             </div>
           </div>
 
-          <!-- Panel explicación -->
+          <!-- Explicación -->
           <div class="card">
-            <div class="card-header fw-semibold">🔍 Explicación paso a paso</div>
+            <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+              <span>🔍 Explicación paso a paso</span>
+              <button class="btn btn-sm btn-outline-secondary py-0" v-if="selected" @click="clearSelection" title="Volver a seguir la celda del paso (Esc)">✕</button>
+            </div>
             <div class="card-body">
-              <p class="text-muted text-center py-3 mb-0" v-if="!selected">
+              <div class="mb-3" v-if="currentStep">
+                <span class="badge fs-6 text-wrap text-start" :class="stepBadge.cls">{{ stepBadge.icon }} {{ stepBadge.text }}</span>
+                <span class="small text-muted ms-2">{{ progressText }}</span>
+              </div>
+              <p class="text-muted text-center py-3 mb-0" v-if="!focus">
                 Haz clic en cualquier celda de la tabla para ver cómo se calculó ese valor.
               </p>
               <div class="row g-3" v-else>
                 <div class="col-12 col-lg-6">
                   <p class="fw-semibold small text-muted text-uppercase mb-1">Fórmula de recurrencia</p>
                   <div class="border rounded p-3 bg-body-tertiary" id="formula-box"></div>
-                  <div class="mt-2">
+                  <div class="mt-2" v-if="selected && isFilled(focus.ri, focus.ci)">
                     <span :class="['badge', 'fs-6', verdictBadge]">{{ verdictIcon }} {{ verdictText }}</span>
                   </div>
                 </div>
@@ -233,8 +285,66 @@
 </div>
 
 <script>
-const { createApp, ref, computed, nextTick, watch } = Vue;
+const { createApp, ref, computed, nextTick, watch, onMounted, onBeforeUnmount } = Vue;
 
+const PSEUDOCODE = [
+  'ALGORITMO Mochila(peso[1..n], valor[1..n], W)',
+  '    t = matriz[0..n][0..W]',
+  '    PARA j DESDE 0 HASTA W HACER',
+  '        t[0][j] = 0',
+  '    PARA i DESDE 1 HASTA n HACER',
+  '        PARA j DESDE 0 HASTA W HACER',
+  '            SI j < peso[i] ENTONCES',
+  '                t[i][j] = t[i-1][j]',
+  '            SINO',
+  '                t[i][j] = máx(t[i-1][j], valor[i] + t[i-1][j - peso[i]])',
+  '    RETORNAR t[n][W]',
+];
+// Líneas activas de cada tipo de paso.
+const LINES = { init: [1, 2, 3], noFit: [4, 5, 6, 7], fit: [4, 5, 6, 8, 9], row: [4, 5, 6, 7, 8, 9], end: [10] };
+
+// ── Pasos precalculados sobre la tabla ya resuelta: cada paso guarda cuántas celdas ya se
+// llenaron, en orden por filas (`done`, ver isFilled). La fila 0 (ningún elemento, ri = -1) se llena en el primer paso.
+// El modo "Por fila" solo se detiene en los pasos con `summary`.
+function computeSteps(items, W, val, keep) {
+  const n = items.length;
+  const steps = [];
+  const initBadge = { icon: '🏗️', text: 'Caso base: sin ningún elemento (fila 0) no se puede cargar nada, así que el valor es 0 para cualquier capacidad.', cls: 'bg-secondary' };
+  steps.push({ phase: 'init', done: 0, activeLines: LINES.init, badge: initBadge, summary: initBadge });
+  let done = 0;
+  for (let i = 1; i <= n; i++) {
+    const { name, weight: w, value: v } = items[i - 1];
+    for (let j = 0; j <= W; j++) {
+      let badge;
+      if (j < w) {
+        badge = { icon: '🚫', text: `"${name}" pesa ${w} y la capacidad es ${j}: no entra, t[${i}][${j}] = t[${i - 1}][${j}] = ${val[i][j]}.`, cls: 'bg-primary' };
+      } else {
+        const take = v + val[i - 1][j - w], skip = val[i - 1][j];
+        badge = keep[i][j]
+          ? { icon: '✅', text: `Conviene incluir "${name}": ${v} + t[${i - 1}][${j - w}] = ${take} > ${skip}.`, cls: 'bg-warning text-dark' }
+          : { icon: '⬜', text: `No conviene incluir "${name}": ${v} + t[${i - 1}][${j - w}] = ${take} ≤ ${skip}.`, cls: 'bg-primary' };
+      }
+      steps.push({ phase: 'cell', i, j, done: ++done, activeLines: j < w ? LINES.noFit : LINES.fit, badge });
+    }
+    steps[steps.length - 1].summary = {
+      icon: '📊',
+      text: `Fila ${i} ("${name}", peso ${w}, valor ${v}) completa: con los primeros ${i} elementos y capacidad ${W} se logra ${val[i][W]}.`,
+      cls: 'bg-secondary',
+    };
+  }
+  const endBadge = { icon: '🏁', text: `t[${n}][${W}] = ${val[n][W]} es el valor óptimo. Los elementos se reconstruyen volviendo desde (${n}, ${W}): si la celda difiere de la de arriba, el elemento entra y se resta su peso.`, cls: 'bg-success' };
+  // "Por fila" termina en el resumen de la última fila (con el cierre agregado); "por celda" tiene un paso más para el cierre.
+  const last = steps[steps.length - 1];
+  last.summary = { icon: endBadge.icon, text: `${last.summary.text} ${endBadge.text}`, cls: endBadge.cls };
+  steps.push({ phase: 'end', done, activeLines: LINES.end, badge: endBadge });
+  return steps;
+}
+
+
+// Fórmulas del panel de explicación: cada término lleva la misma clase que su celda en la tabla
+// (\htmlClass necesita `trust`, solo para ese comando; `strict: 'ignore'` calla el aviso de extensión HTML).
+const KATEX_OPTS = { throwOnError: false, trust: ctx => ctx.command === '\\htmlClass', strict: 'ignore' };
+function box(cls, t) { return `\\htmlClass{${cls}}{${t}}`; }
 // Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
 function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
 // Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
@@ -244,13 +354,13 @@ function texInline(s) {
 // Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total]; veces, costo y total en LaTeX.
 const COMPLEXITY = {
   total: "O(n \\cdot W)",
-  headers: ["Paso", "Veces", "Costo"],
+  headers: ["Línea", "Veces", "Costo"],
   rows: [
-    ["val ← tabla (n+1) × (W+1), fila 0 en 0", "(n+1)(W+1)", "O(n \\cdot W)"],
-    ["PARA i = 1 HASTA n", "n", "O(n)"],
-    ["PARA j = 0 HASTA W", "n(W+1)", "O(n \\cdot W)"],
-    ["val[i][j] ← máx(val[i−1][j], v_i + val[i−1][j − w_i])", "n(W+1) \\text{, cada una } O(1)", "O(n \\cdot W)"],
-    ["Reconstruir x: de la fila n a la 1, restando w_i si se incluyó", "n", "O(n)"],
+    ["t = matriz[0..n][0..W]; PARA j …: t[0][j] = 0", "W + 1", "O(n \\cdot W)"],
+    ["PARA i DESDE 1 HASTA n", "n", "O(n)"],
+    ["PARA j DESDE 0 HASTA W", "n(W+1)", "O(n \\cdot W)"],
+    ["SI j < peso[i] … SINO t[i][j] = máx(…)", "n(W+1) \\text{, cada una } O(1)", "O(n \\cdot W)"],
+    ["(Reconstruir: de la fila n a la 1, restando peso[i] si se incluyó)", "n", "O(n)"],
   ],
   note: "Cada celda se calcula una sola vez mirando dos celdas de la fila anterior: $O(1)$ por celda y $(n+1)(W+1)$ celdas, así que es $O(n \\cdot W)$ en tiempo y en memoria. Es pseudo-polinomial: $W$ es un valor, no un tamaño; escrito en binario ocupa $\\log W$ bits, y agregarle un bit duplica el trabajo. Si solo interesa el valor óptimo, alcanza con una fila: $O(W)$ de memoria.",
 };
@@ -271,6 +381,7 @@ createApp({
 
     const capacity = ref(4);
     const items = ref(defaultItems());
+    const granularity = ref('cell');
 
     const dpTable  = ref([]);
     const rawVal   = ref([]);
@@ -330,7 +441,93 @@ createApp({
           vec: getVec(ri + 1, ci),
         }))
       );
+      steps.value = computeSteps(it, W, val, keep);
+      stopAutoplay();
+      goToStep(0); // arranca sin completar la tabla, para no develar el resultado
     }
+
+    // ── Paso a paso: un puntero sobre los pasos precalculados ──
+    const steps = ref([]);
+    const currentStepIndex = ref(0);
+    const isPlaying = ref(false);
+    const speedMs = ref(700);
+    let playTimer = null;
+
+    const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
+    const rowEnds = computed(() => steps.value.flatMap((s, idx) => s.summary ? [idx] : []));
+    const isAtStart = computed(() => currentStepIndex.value <= (granularity.value === 'row' ? rowEnds.value[0] ?? 0 : 0));
+    const isAtEnd = computed(() => currentStepIndex.value >= (granularity.value === 'row' ? rowEnds.value.at(-1) ?? 0 : steps.value.length - 1));
+    const stepBadge = computed(() => (granularity.value === 'row' && currentStep.value.summary) || currentStep.value.badge);
+    // En "Por fila", el final de una fila representa todas sus celdas: se resalta el bloque entero.
+    const activeLines = computed(() => {
+      const s = currentStep.value;
+      if (!s) return [];
+      return granularity.value === 'row' && s.summary && s.phase === 'cell' ? LINES.row : s.activeLines;
+    });
+    const progressText = computed(() => granularity.value === 'row'
+      ? `Fila ${currentStep.value.i ?? 0} de ${dpTable.value.length}`
+      : `Paso ${currentStepIndex.value + 1} de ${steps.value.length}`);
+    // Las celdas se llenan de a una por fila (ri = fila del elemento ri + 1, ci = capacidad).
+    function isFilled(ri, ci) {
+      const s = currentStep.value;
+      return !s || ri * (dpTable.value[0]?.length ?? 0) + ci < s.done;
+    }
+    const isComplete = computed(() => isFilled(dpTable.value.length - 1, (dpTable.value[0]?.length ?? 1) - 1));
+    // La celda en foco: la clickeada o, en modo por celda, la que calcula el paso.
+    const focus = computed(() => {
+      if (selected.value) return selected.value;
+      const s = currentStep.value;
+      if (granularity.value !== 'cell' || !s || s.phase !== 'cell') return null;
+      const item = items.value[s.i - 1];
+      return { ri: s.i - 1, ci: s.j, item, wi: item.weight, vi: item.value };
+    });
+
+    function goToStep(i) {
+      currentStepIndex.value = Math.max(0, Math.min(steps.value.length - 1, i));
+      refresh();
+    }
+    function refresh() {
+      nextTick(() => { if (focus.value) renderExplanation(focus.value.ri, focus.value.ci, focus.value.item); });
+    }
+    function stepForward() {
+      if (isAtEnd.value) { stopAutoplay(); return; }
+      const i = currentStepIndex.value;
+      goToStep(granularity.value === 'row' ? rowEnds.value.find(x => x > i) : i + 1);
+    }
+    function stepBackward() {
+      const i = currentStepIndex.value;
+      goToStep(granularity.value === 'row' ? [...rowEnds.value].reverse().find(x => x < i) ?? 0 : i - 1);
+    }
+    function restartAnimation() { stopAutoplay(); goToStep(granularity.value === 'row' ? rowEnds.value[0] : 0); }
+    function stopAutoplay() {
+      isPlaying.value = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    }
+    function togglePlay() {
+      if (isPlaying.value) { stopAutoplay(); return; }
+      if (isAtEnd.value) restartAnimation();
+      isPlaying.value = true;
+      playTimer = setInterval(() => {
+        if (isAtEnd.value) { stopAutoplay(); return; }
+        stepForward();
+      }, speedMs.value);
+    }
+    function setGranularity(g) {
+      granularity.value = g;
+      // Al pasar a "por fila" se completa la fila en curso.
+      if (g === 'row') goToStep(rowEnds.value.find(x => x >= currentStepIndex.value) ?? rowEnds.value.at(-1));
+      else refresh();
+    }
+    function onKeyDown(e) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'Escape' && selected.value) clearSelection();
+      if (!steps.value.length) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); stepBackward(); }
+    }
+    onMounted(() => window.addEventListener('keydown', onKeyDown));
+    onBeforeUnmount(() => { window.removeEventListener('keydown', onKeyDown); stopAutoplay(); });
+
 
     // ── Resultados ──
     const optimalValue = computed(() => {
@@ -352,8 +549,8 @@ createApp({
 
     // ── Celdas ──
     function cellClass(ri, ci) {
-      if (!selected.value) return '';
-      const { ri: sr, ci: sc } = selected.value;
+      if (!focus.value) return '';
+      const { ri: sr, ci: sc } = focus.value;
       const wi = items.value[sr]?.weight ?? 0;
       if (ri === sr && ci === sc)           return 'cell-selected';
       if (ri === sr - 1 && ci === sc)       return 'cell-dep-skip';
@@ -362,13 +559,39 @@ createApp({
     }
 
     function selectCell(ri, ci) {
-      const item = items.value[ri];
-      selected.value = { ri, ci, item, wi: item.weight, vi: item.value };
-      nextTick(() => renderExplanation(ri, ci, item));
+      const item = items.value[ri] ?? null; // null en la fila 0
+      const s = selected.value;
+      selected.value = s && s.ri === ri && s.ci === ci ? null : { ri, ci, item, wi: item?.weight, vi: item?.value };
+      refresh();
+    }
+    function clearSelection() { selected.value = null; refresh(); }
+
+    // Fila 0: caso base, sin dependencias.
+    function renderBaseExplanation(j) {
+      const fBox = document.getElementById('formula-box');
+      if (fBox) {
+        fBox.innerHTML = '';
+        const desc = document.createElement('div');
+        desc.className = 'small text-muted mb-2';
+        desc.textContent = `Ningún elemento — fila i=0, capacidad j=${j}`;
+        fBox.appendChild(desc);
+        const math = document.createElement('div');
+        katex.render(`${box('cell-selected', `t_{0,${j}}`)} = 0 \\quad \\text{(caso base)}`, math, { ...KATEX_OPTS, displayMode: true });
+        fBox.appendChild(math);
+      }
+      const sBox = document.getElementById('subst-box');
+      if (sBox) {
+        sBox.innerHTML = '';
+        const p = document.createElement('div');
+        p.className = 'text-muted small';
+        p.textContent = `Caso base: sin elementos para elegir no se carga nada, sin importar la capacidad (${j} kg). Es la fila de la que parten las dos ramas de la fila 1.`;
+        sBox.appendChild(p);
+      }
     }
 
     // ── KaTeX: renderizar solo en los dos divs de explicación ──
     function renderExplanation(ri, ci, item) {
+      if (ri < 0) { renderBaseExplanation(ci); return; }
       const wi = item.weight;
       const vi = item.value;
       const i  = ri + 1;
@@ -391,9 +614,9 @@ createApp({
 
         const math = document.createElement('div');
         katex.render(
-          `t_{${i},${j}} = \\max \\begin{cases} t_{${i-1},${j}} & \\text{(no incluir)} \\\\ V_{${i}} + t_{${i-1},${j-wi}} & \\text{(incluir, si } j \\geq W_i\\text{)} \\end{cases}`,
+          `${box('cell-selected', `t_{${i},${j}}`)} = \\max \\begin{cases} ${box('cell-dep-skip', `t_{${i-1},${j}}`)} & \\text{(no incluir)} \\\\ V_{${i}} + ${box('cell-dep-take', `t_{${i-1},${canTake ? j - wi : 'j - W_i'}}`)} & \\text{(incluir, si } j \\geq W_i\\text{)} \\end{cases}`,
           math,
-          { displayMode: true, throwOnError: false }
+          { ...KATEX_OPTS, displayMode: true }
         );
         fBox.appendChild(math);
       }
@@ -403,6 +626,14 @@ createApp({
       if (sBox) {
         sBox.innerHTML = '';
 
+        if (!isFilled(ri, ci)) {
+          const p = document.createElement('div');
+          p.className = 'text-muted small';
+          p.textContent = `Esta celda todavía no se calculó: seguí avanzando hasta llegar a t[${i}][${j}].`;
+          sBox.appendChild(p);
+          return;
+        }
+
         const desc = document.createElement('div');
         desc.className = 'small text-muted mb-2';
         desc.textContent = 'Reemplazando con valores reales:';
@@ -410,15 +641,15 @@ createApp({
 
         const line1 = document.createElement('div');
         line1.className = 'mb-1';
-        katex.render(`\\text{No incluir: } t_{${i-1},${j}} = ${skipVal}`, line1, { throwOnError: false });
+        katex.render(`\\text{No incluir: } ${box('cell-dep-skip', `t_{${i-1},${j}}`)} = ${box('cell-dep-skip', skipVal)}`, line1, KATEX_OPTS);
         sBox.appendChild(line1);
 
         const line2 = document.createElement('div');
         line2.className = 'mb-1';
         if (canTake) {
-          katex.render(`\\text{Incluir: } V_{${i}} + t_{${i-1},${j-wi}} = ${vi} + ${takeBase} = ${takeVal}`, line2, { throwOnError: false });
+          katex.render(`\\text{Incluir: } V_{${i}} + ${box('cell-dep-take', `t_{${i-1},${j-wi}}`)} = ${vi} + ${box('cell-dep-take', takeBase)} = ${takeVal}`, line2, KATEX_OPTS);
         } else {
-          katex.render(`\\text{Incluir: imposible, } j=${j} < W_i=${wi}`, line2, { throwOnError: false });
+          katex.render(`\\text{Incluir: imposible, } j=${j} < W_i=${wi}`, line2, KATEX_OPTS);
         }
         sBox.appendChild(line2);
 
@@ -428,22 +659,24 @@ createApp({
 
         const result = document.createElement('div');
         const takeStr = canTake ? String(takeVal) : '\\text{—}';
-        katex.render(`t_{${i},${j}} = \\max(${skipVal},\\ ${takeStr}) = \\mathbf{${cellVal}}`, result, { throwOnError: false });
+        katex.render(`${box('cell-selected', `t_{${i},${j}}`)} = \\max(${box('cell-dep-skip', skipVal)},\\ ${canTake ? box('cell-dep-take', takeStr) : takeStr}) = \\mathbf{${cellVal}}`, result, KATEX_OPTS);
         sBox.appendChild(result);
       }
     }
 
     const verdictBadge = computed(() => {
-      if (!selected.value) return 'bg-secondary';
-      return rawKeep.value[selected.value.ri + 1]?.[selected.value.ci] ? 'bg-success' : 'bg-primary';
+      if (!focus.value || focus.value.ri < 0) return 'bg-secondary';
+      return rawKeep.value[focus.value.ri + 1]?.[focus.value.ci] ? 'bg-success' : 'bg-primary';
     });
     const verdictIcon = computed(() => {
-      if (!selected.value) return '';
-      return rawKeep.value[selected.value.ri + 1]?.[selected.value.ci] ? '✅' : '⬜';
+      if (!focus.value) return '';
+      if (focus.value.ri < 0) return '⬜';
+      return rawKeep.value[focus.value.ri + 1]?.[focus.value.ci] ? '✅' : '⬜';
     });
     const verdictText = computed(() => {
-      if (!selected.value) return '';
-      const { ri, ci, item } = selected.value;
+      if (!focus.value) return '';
+      const { ri, ci, item } = focus.value;
+      if (ri < 0) return 'Caso base: ningún elemento';
       return rawKeep.value[ri + 1]?.[ci]
         ? `Se incluye "${item.name}"`
         : `No se incluye "${item.name}"`;
@@ -462,10 +695,11 @@ createApp({
     }
 
     // ── Persistencia (autoguardado) + compartir por URL (#d=...) ──
-    function currentState() { return { capacity: capacity.value, items: items.value }; }
+    function currentState() { return { capacity: capacity.value, items: items.value, granularity: granularity.value }; }
     function applyState(data) {
       capacity.value = data.capacity ?? capacity.value;
       items.value = data.items || items.value;
+      granularity.value = data.granularity ?? granularity.value;
       _id = items.value.reduce((max, it) => Math.max(max, it.id), -1) + 1;
     }
     function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState())); }
@@ -511,20 +745,23 @@ createApp({
     function resetToDefault() {
       capacity.value = 4;
       items.value = defaultItems();
+      granularity.value = 'cell';
       newConfirm.value = false;
       solve();
     }
 
     // Cargar de la URL o de localStorage, autoguardar cambios, y resolver al cargar
     loadInitialState();
-    watch([capacity, items], persist, { deep: true });
+    watch([capacity, items, granularity], persist, { deep: true });
     nextTick(solve);
 
     return {
-      complexity: COMPLEXITY, tex, texInline,
-      capacity, items, dpTable, selected,
+      complexity: COMPLEXITY, tex, texInline, PSEUDOCODE,
+      capacity, items, dpTable, selected, focus, isComplete, isFilled,
       capacityCols, rowLabel, solve,
-      selectCell, cellClass,
+      selectCell, clearSelection, cellClass,
+      steps, currentStep, granularity, setGranularity, activeLines, stepBadge, progressText,
+      isAtStart, isAtEnd, isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,
       optimalValue, optimalItems, optimalWeight,
       verdictBadge, verdictIcon, verdictText,
       addItem, removeItem,

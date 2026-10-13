@@ -26,7 +26,7 @@ Los tienen las 20 herramientas (en `recursion/call-tree.html` con otros nombres:
 |---|---|---|
 | Paso a paso precalculado | `computeSteps()` corre el algoritmo real una vez y guarda un snapshot por parada didáctica; navegar es mover un puntero (`currentStepIndex`), nunca re-ejecutar. Los snapshots pueden guardar referencias en vez de copias (`done` + `isFilled`). | `grafos/dijkstra.html`; `grafos/floyd-warshall.html` (sin copias) |
 | Controles de reproducción | ⏮ ⏪ ▶️/⏸️ ⏩ en el navbar + slider de velocidad (`speedMs`, `setInterval`). ⏪/⏩ deshabilitados en los extremos. | `grafos/dijkstra.html` |
-| Granularidad | Dos modos sobre el mismo array de pasos: fino (cada celda) y grueso (cada iteración). El modo grueso solo para en los pasos con `summary`, que además trae un resumen de la iteración, y resalta el bloque entero del bucle en el pseudocódigo. | `grafos/floyd-warshall.html` ("Por k" / "Por celda") |
+| Granularidad | Dos modos sobre el mismo array de pasos: fino (cada celda) y grueso (cada iteración). El modo grueso solo para en los pasos con `summary`, que además trae un resumen de la iteración, y resalta el bloque entero del bucle en el pseudocódigo. | `grafos/floyd-warshall.html` ("Por k" / "Por celda"); `dp/lcs.html` ("Por fila" / "Por celda") |
 | Atajos de teclado | ← → avanzan y retroceden según el modo; Esc suelta la selección. Se ignoran dentro de `input`/`textarea`/`select`. | `grafos/floyd-warshall.html` (`onKeyDown`) |
 | Saltos directos | Botones para ir al inicio de cada iteración, o historial clickeable de operaciones. | `grafos/floyd-warshall.html` (`kButtons`); `estructuras/heap.html` (historial) |
 | Pseudocódigo con línea activa | Texto de la cátedra tal cual, línea por línea con `white-space: pre`; las activas en `--bs-warning-bg-subtle`. Las líneas agregadas por la herramienta (no son de la cátedra) van en verde con un `title` que lo explica. | `grafos/floyd-warshall.html` (líneas de Z); `estructuras/union-find.html` (`+`) |
@@ -61,9 +61,9 @@ Features de las secciones 2 y 3 que varían entre herramientas (las de la secci�
 
 | Herramienta | Paso a paso | Autoplay | ← → | Pseudocódigo | Complejidad | Fórmula KaTeX | Clic → foco | Seguimiento | Esc | Auto-chequeo |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `dp/knapsack.html` | · | · | · | · | ✅ | ✅ | ✅ | · | · | · |
-| `dp/lcs.html` | · | · | · | · | ✅ | ✅ | ✅ | · | · | · |
-| `dp/edit-distance.html` | · | · | · | · | ✅ | ✅ | ✅ | · | · | · |
+| `dp/knapsack.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | · |
+| `dp/lcs.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | · |
+| `dp/edit-distance.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | · |
 | `recursion/call-tree.html` | · | · | · | · | · | ✅ | · | · | ✅ | · |
 | `recursion/teorema-maestro.html` | · | · | · | · | · | ✅ | · | · | · | · |
 | `complejidad/comparador.html` | · | · | · | · | · | ✅ | · | · | · | · |
@@ -82,16 +82,14 @@ Features de las secciones 2 y 3 que varían entre herramientas (las de la secci�
 | `bnb/knapsack.html` | ✅ | ✅ | · | ✅ | ✅ | · | ✅ | ✅ | ✅ | · |
 | `bnb/tsp.html` | ✅ | ✅ | · | ✅ | ✅ | · | ✅ | ✅ | ✅ | · |
 
-Granularidad, fórmula coloreada y tablas ajustadas al ancho solo están en `grafos/floyd-warshall.html`.
+Granularidad y fórmula coloreada están en `grafos/floyd-warshall.html` y en las tres de PD ("Por fila" / "Por celda"); las tablas ajustadas al ancho, solo en Floyd · Warshall.
 
 ## 5. Brechas
 
 Lo que falta donde sí aplicaría, de más a menos impacto en clase:
 
-1. **Programación dinámica sin paso a paso** (`dp/knapsack.html`, `dp/lcs.html`, `dp/edit-distance.html`): hoy la tabla aparece resuelta de una vez. Les falta `computeSteps` (llenar la tabla celda por celda en el orden de la recurrencia), el pseudocódigo con línea activa, los controles de reproducción y la granularidad (por fila / por celda, como "Por k" / "Por celda"). Mientras se recorre, las celdas aún no calculadas quedan vacías y el foco sigue a la celda del paso; el `selectCell` que ya tienen pasa a ser el foco fijado.
-2. **← → solo en Floyd · Warshall**: llevarlo a todas las que tienen paso a paso (copiar `onKeyDown`).
-3. **Fórmula coloreada solo en Floyd · Warshall**: las de PD ya tienen fórmula + sustitución y celdas con `.cell-dep-*`; falta enmarcar los términos con las mismas clases.
-4. **Esc en PD**: tienen selección por clic pero no se suelta con Esc.
-5. **Valores en monoespaciada**: solo Floyd · Warshall; las tablas de PD y de B&B usan la fuente proporcional.
-6. **Auto-chequeo**: solo Floyd · Warshall. Vale la pena en las que tienen un ejemplo de la cátedra con resultado conocido.
-7. **Clic → foco en grafos** (DFS, BFS, Dijkstra, Prim, Kruskal, Coloreo): a evaluar. Un clic en un nodo podría fijar su fila en las tablas y explicar su estado, como en B&B.
+1. **← → solo en Floyd · Warshall y PD**: llevarlo a las demás que tienen paso a paso (copiar `onKeyDown`).
+2. **Valores en monoespaciada**: solo Floyd · Warshall; las tablas de PD y de B&B usan la fuente proporcional.
+3. **Auto-chequeo**: solo Floyd · Warshall. Vale la pena en las que tienen un ejemplo de la cátedra con resultado conocido.
+4. **Pseudocódigo de PD**: los de Mochila, LCS y Distancia de edición los escribió la herramienta, no son de la cátedra; reemplazarlos por los de las diapositivas cuando estén (cambiar `PSEUDOCODE` y `LINES`).
+5. **Clic → foco en grafos** (DFS, BFS, Dijkstra, Prim, Kruskal, Coloreo): a evaluar. Un clic en un nodo podría fijar su fila en las tablas y explicar su estado, como en B&B.
