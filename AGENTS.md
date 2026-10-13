@@ -9,6 +9,8 @@ Guía para crear nuevas visualizaciones didácticas de Programación Avanzada. H
 
 Las reglas de stack/idioma, **Modo claro/oscuro**, **Persistencia/"Nuevo"/Compartir por URL**, **Footer** y **Portada** aplican a **las tres familias**. Para crear una visualización nueva, copiar el archivo existente más parecido en forma (una tabla → `dp/lcs.html`; un diagrama/grafo sin código → `recursion/call-tree.html`; un algoritmo paso a paso sobre un grafo → `grafos/dfs.html`) y adaptar.
 
+[FEATURES.md](FEATURES.md) cataloga los features generales (paso a paso, atajos, fórmula coloreada, foco fijado, auto-chequeo...), con la implementación de referencia de cada uno y qué herramientas los tienen: consultarlo al crear una herramienta o al mejorar una existente, y actualizar su tabla de cobertura al sumar un feature.
+
 ## Reglas duras
 
 - **Un solo archivo `.html`, autocontenido.** Nada de build, nada de archivos separados de JS/CSS.
@@ -239,6 +241,7 @@ Para Canvas (Familia 2), seguir la sección "Familia 2" arriba y copiar `recursi
 6. Actualizar `currentState()`/`applyState()` con los campos propios (de ahí sale gratis autoguardado, "Nuevo" y compartir por URL). `resetToDefault()` vuelve a los valores de ejemplo hardcodeados.
 7. Antes de dar por terminada la visualización, revisar que no queden imports, clases CSS, variables o funciones sin usar.
 8. Actualizar `README.md` (fila nueva) y `index.html` (tarjeta nueva).
+9. Repasar [FEATURES.md](FEATURES.md): sumar los features que apliquen y agregar la fila de la herramienta a la tabla de cobertura.
 
 ## Commits
 
