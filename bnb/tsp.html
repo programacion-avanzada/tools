@@ -693,6 +693,15 @@ const COMPLEXITY = {
   note: "$N$ es la cantidad de nodos del árbol: los caminos desde v1 de 1 a $n - 1$ vértices, $N = \\sum_{k=0}^{n-2} \\frac{(n-1)!}{(n-1-k)!} \\le e \\cdot (n-1)!$ (41 con $n = 5$). Cada cota recorre las filas que faltan salir y, en cada una, las columnas permitidas: $O(n^2)$. Como $\\log N = O(n \\log n)$, la cola de prioridad no domina: el total es $O(N \\cdot n^2) = O(n^2 \\cdot (n-1)!)$ en el peor caso, con cualquiera de las tres estrategias. La poda no cambia el peor caso, pero en la práctica genera muchos menos nodos (17 de 41 en el ejemplo).",
 };
 
+// Auto-chequeo con la matriz por defecto: el tour óptimo es 1 → 4 → 5 → 2 → 3 → 1, de longitud 30
+// (verificado por fuerza bruta sobre las 24 permutaciones), con cualquier estrategia, con o sin greedy.
+(function selfCheck() {
+  for (const s of Object.keys(STRATEGIES)) for (const greedy of [true, false]) {
+    const end = computeSteps(DEFAULT_STATE.matrix, s, greedy).steps.at(-1);
+    console.assert(end.best === 30 && end.bestTour.join() === '0,3,4,1,2,0', `Viajante (${s}, greedy ${greedy}): tour óptimo`, end.best, end.bestTour);
+  }
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-bnb-tsp';

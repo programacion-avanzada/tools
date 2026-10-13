@@ -498,6 +498,15 @@ const COMPLEXITY = {
   note: "La cola es un heap sin \"decrementar clave\": cada relajación agrega una entrada nueva, así que puede llegar a tener $E + 1$, y las viejas se descartan al extraerlas (SI NO visitado). Cada operación del heap cuesta $O(\\log E)$, y como $E \\le V^2$, $\\log E \\le 2 \\log V = O(\\log V)$. Total: $O(V) + O(E \\log V) = O((V+E) \\log V)$. En un grafo no dirigido, $E$ cuenta cada arista en los dos sentidos. Con matriz de adyacencia y sin heap (buscando el mínimo a mano) es $O(V^2)$.",
 };
 
+// Auto-chequeo con el ejemplo de la cátedra: 0 → 2 (3) → 1 (5) → 3 (7), mejor que los caminos directos 0 → 1 (7) y 2 → 3 (11).
+(function selfCheck() {
+  const { nodeLabels, edges } = parseGraphText(DEFAULT_GRAPH_TEXT, true);
+  const end = computeSteps(buildAdjacency(nodeLabels, edges, true), nodeLabels, '0').at(-1);
+  console.assert(JSON.stringify(end.dist) === '{"0":0,"1":5,"2":3,"3":7}', 'Dijkstra: distancias', end.dist);
+  console.assert(JSON.stringify(end.pred) === '{"1":"2","2":"0","3":"1"}', 'Dijkstra: predecesores', end.pred);
+  console.assert(end.visited.join('') === '0213', 'Dijkstra: orden en que los nodos pasan a S', end.visited);
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-grafos-dijkstra';

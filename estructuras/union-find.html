@@ -565,6 +565,14 @@ const COMPLEXITY = {
   note: "En quick-find, find lee un solo casillero pero union recorre todo id[]. En quick-union los dos suben por id[] hasta la raíz, y sin control de altura el árbol puede degenerar en una lista. Weighted cuelga siempre el árbol más chico del más grande: la profundidad de un elemento solo crece cuando su árbol al menos duplica su tamaño, así que nunca supera $\\log_2 N$. Path halving además acorta el camino en cada find; junto con weighted, el costo amortizado es $O(\\alpha(N))$, donde $\\alpha$ (inversa de Ackermann) no pasa de 4 para cualquier $N$ práctico.",
 };
 
+// Auto-chequeo con tinyUF de Sedgewick (Algorithms, 4.ª ed.): los id[] finales del libro para quick-find y weighted quick-union.
+(function selfCheck() {
+  const { ops } = parseOps(DEFAULT_OPS_TEXT);
+  const [qf, , wqu] = computeSteps(elementNames(DEFAULT_ELEMS, ops), ops).at(-1).variants;
+  console.assert(qf.id.join(' ') === '1 1 1 8 8 1 1 1 8 8', 'Union-Find: id[] de quick-find', qf.id);
+  console.assert(wqu.id.join(' ') === '6 2 6 4 4 6 6 2 4 4', 'Union-Find: id[] de weighted quick-union', wqu.id);
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-grafos-union-find';

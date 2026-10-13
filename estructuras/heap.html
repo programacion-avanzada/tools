@@ -506,6 +506,15 @@ const COMPLEXITY = {
   note: "Un heap con $n$ elementos es un árbol completo de altura $\\lfloor \\log_2 n \\rfloor$. Flotar sube un nivel por intercambio y hundir baja uno, así que ninguno hace más intercambios que la altura: insertar y extraer son $O(\\log n)$. Ver el mínimo es $O(1)$ porque siempre está en heap[1]. Insertar $n$ elementos de a uno cuesta $O(n \\log n)$.",
 };
 
+// Auto-chequeo con la secuencia por defecto, calculada a mano: después de insertar 7, 5, 9, 8, 6, 3, 4, 1
+// el heap es [1, 3, 4, 6, 7, 9, 5, 8]; extraer devuelve 1 y deja [3, 6, 4, 8, 7, 9, 5]
+// (el 8 baja dos niveles: 2 intercambios y 4 comparaciones).
+(function selfCheck() {
+  const end = computeSteps(parseOps(DEFAULT_OPS_TEXT).ops).steps.at(-1);
+  console.assert(end.arr.slice(1).map(x => x.v).join() === '3,6,4,8,7,9,5', 'Heap: arreglo final', end.arr);
+  console.assert(end.extracted.join() === '1' && end.comparisons === 4 && end.swaps === 2, 'Heap: extracción del mínimo', end);
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-estructuras-heap';

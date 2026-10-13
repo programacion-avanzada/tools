@@ -336,6 +336,15 @@ const COMPLEXITY = {
   note: "Cada vértice entra a la pila una sola vez, porque se marca como visitado al apilarlo, y cada arista se mira desde sus dos extremos: $O(V) + O(E) = O(V+E)$ con lista de adyacencia. Con matriz de adyacencia, Adyacentes(v) costaría $O(V)$ y el total sería $O(V^2)$. Memoria: $O(V)$ para la pila y los visitados.",
 };
 
+// Auto-chequeo con el grafo por defecto, calculado a mano: con la pila explícita se procesa A, C, D, E, F, B
+// y la única arista que no es del árbol es B–D.
+(function selfCheck() {
+  const { nodeLabels, edges } = parseGraphText(DEFAULT_GRAPH_TEXT);
+  const end = computeSteps(buildAdjacency(nodeLabels, edges), 'A').at(-1);
+  console.assert(end.processed.join('') === 'ACDEFB', 'DFS: orden de procesamiento', end.processed);
+  console.assert(Object.keys(end.edgeCls).filter(k => end.edgeCls[k] === 'discard').join() === 'B|D', 'DFS: aristas descartadas', end.edgeCls);
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-grafos-dfs';

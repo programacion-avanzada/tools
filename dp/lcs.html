@@ -312,6 +312,17 @@ function computeSteps(A, B, dp) {
 // (\htmlClass necesita `trust`, solo para ese comando; `strict: 'ignore'` calla el aviso de extensión HTML).
 const KATEX_OPTS = { throwOnError: false, trust: ctx => ctx.command === '\\htmlClass', strict: 'ignore' };
 function box(cls, t) { return `\\htmlClass{${cls}}{${t}}`; }
+function lcsTable(A, B) {
+  const m = A.length, n = B.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = A[i-1] === B[j-1]
+        ? dp[i-1][j-1] + 1
+        : Math.max(dp[i-1][j], dp[i][j-1]);
+  return dp;
+}
+
 // Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
 function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
 // Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
@@ -331,6 +342,12 @@ const COMPLEXITY = {
   ],
   note: "Cada celda mira como mucho tres vecinas ya calculadas: $O(1)$ por celda, así que es $O(m \\cdot n)$ en tiempo y en memoria. Si solo interesa la longitud, alcanzan dos filas: $O(\\min(m, n))$ de memoria.",
 };
+
+// Auto-chequeo con el ejemplo por defecto (el de Cormen): la LCS de ABCBDAB y BDCAB mide 4.
+(function selfCheck() {
+  console.assert(lcsTable('ABCBDAB', 'BDCAB')[7][5] === 4, 'LCS: longitud de ABCBDAB y BDCAB');
+  console.assert(computeSteps('ABCBDAB', 'BDCAB', lcsTable('ABCBDAB', 'BDCAB')).length === 7 * 5 + 2, 'LCS: un paso por celda + inicio + fin');
+})();
 
 createApp({
   setup() {
@@ -353,13 +370,7 @@ createApp({
       const m = A.length, n = B.length;
       if (!m || !n) return;
 
-      const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-      for (let i = 1; i <= m; i++)
-        for (let j = 1; j <= n; j++)
-          dp[i][j] = A[i-1] === B[j-1]
-            ? dp[i-1][j-1] + 1
-            : Math.max(dp[i-1][j], dp[i][j-1]);
-
+      const dp = lcsTable(A, B);
       dpTable.value = dp;
       solvedA.value = A; solvedB.value = B;
       steps.value = computeSteps(A, B, dp);

@@ -559,6 +559,14 @@ const COMPLEXITY = {
   note: "$h$ es la altura del bosque del Union-Find. Con weighted quick-union $h \\le \\log_2 V$, los find suman $O(E \\log V)$ y domina ordenar las aristas: $O(E \\log E)$, lo que dice el badge. El Union-Find de esta herramienta es el ingenuo (padre[], sin peso ni compresión, para que se vea el bosque), donde $h$ puede llegar a $V - 1$: con él, el peor caso es $O(E \\cdot V)$. Las variantes se comparan en estructuras/union-find.html.",
 };
 
+// Auto-chequeo con el grafo por defecto: el árbol de expansión mínima pesa 16
+// (b–d 1, f–g 1, a–b 2, d–e 2, b–g 4, c–g 6; se descartan b–e, a–d y a–f por formar ciclo).
+(function selfCheck() {
+  const { nodeLabels, edges } = parseGraphText(DEFAULT_GRAPH_TEXT);
+  const end = computeSteps(nodeLabels, edges).at(-1);
+  console.assert(end.total === 16, 'Kruskal: peso del MST', end.total);
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-grafos-kruskal';

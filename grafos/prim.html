@@ -482,6 +482,14 @@ const COMPLEXITY = {
   note: "Cada arista puede entrar a la cola una vez desde cada extremo ($\\le 2E$ entradas), y cada inserción o extracción en el heap cuesta $O(\\log E)$: total $O(E \\log E)$. Como $E \\le V^2$, $\\log E = O(\\log V)$, así que también se escribe $O(E \\log V)$. Las entradas viejas no se actualizan: se descartan al extraerlas (SI v NO EN visitados).",
 };
 
+// Auto-chequeo con el grafo por defecto: el árbol de expansión mínima pesa 16
+// (b–d 1, f–g 1, a–b 2, d–e 2, b–g 4, c–g 6), el mismo que da Kruskal.
+(function selfCheck() {
+  const { nodeLabels, edges } = parseGraphText(DEFAULT_GRAPH_TEXT);
+  const end = computeSteps(buildAdjacency(nodeLabels, edges), nodeLabels, nodeLabels[0]).at(-1);
+  console.assert(end.total === 16 && end.mst.length === nodeLabels.length - 1, 'Prim: peso del MST', end.total, end.mst);
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-grafos-prim';

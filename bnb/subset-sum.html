@@ -518,6 +518,14 @@ const COMPLEXITY = {
   note: "En el peor caso no se poda nada y se generan los $2^{n+1} - 1$ nodos del árbol. Si el nodo guarda su suma y la profundidad, factibilidad y cota cuestan $O(1)$ (con las sumas de los que faltan precalculadas). Con la cola de prioridad (un heap de hasta $2^n$ nodos) cada inserción y extracción cuesta $O(\\log 2^n) = O(n)$: total $O(n \\cdot 2^n)$. Con cola o pila (FIFO/LIFO) cuestan $O(1)$: total $O(2^n)$. La poda no cambia el peor caso, pero en la práctica genera muchos menos nodos (13 de 31 en el ejemplo). En memoria, FIFO y Best-First pueden llegar a tener $O(2^n)$ nodos pendientes a la vez; LIFO, como DFS, tiene $O(n)$.",
 };
 
+// Auto-chequeo con el ejemplo por defecto: la mejor suma que no pasa de 19 es 19 = 10 + 7 + 2, con cualquier estrategia.
+(function selfCheck() {
+  for (const s of Object.keys(STRATEGIES)) {
+    const end = computeSteps(DEFAULT_STATE.items, DEFAULT_STATE.target, s).steps.at(-1);
+    console.assert(end.best === 19, `Suma de subconjuntos (${s}): mejor suma`, end.best);
+  }
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-bnb-subset-sum';

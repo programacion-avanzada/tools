@@ -357,6 +357,15 @@ const COMPLEXITY = {
   note: "Cada vértice se encola una sola vez (cuando su distancia deja de ser $\\infty$) y cada arista se mira desde sus dos extremos: $O(V) + O(E) = O(V+E)$ con lista de adyacencia; con matriz sería $O(V^2)$. Memoria: $O(V)$ para la cola y las distancias.",
 };
 
+// Auto-chequeo con el grafo por defecto, calculado a mano: se procesa por niveles y C–D es la única arista descartada.
+(function selfCheck() {
+  const { nodeLabels, edges } = parseGraphText(DEFAULT_GRAPH_TEXT);
+  const end = computeSteps(buildAdjacency(nodeLabels, edges), nodeLabels, 'A').at(-1);
+  console.assert(end.processed.join('') === 'ABCDEF', 'BFS: orden de procesamiento', end.processed);
+  console.assert(JSON.stringify(end.distances) === '{"A":0,"B":1,"C":1,"D":2,"E":3,"F":4}', 'BFS: distancias', end.distances);
+  console.assert(Object.keys(end.edgeCls).filter(k => end.edgeCls[k] === 'discard').join() === 'C|D', 'BFS: aristas descartadas', end.edgeCls);
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-grafos-bfs';

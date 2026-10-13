@@ -345,6 +345,25 @@ function computeSteps(items, W, val, keep) {
 // (\htmlClass necesita `trust`, solo para ese comando; `strict: 'ignore'` calla el aviso de extensión HTML).
 const KATEX_OPTS = { throwOnError: false, trust: ctx => ctx.command === '\\htmlClass', strict: 'ignore' };
 function box(cls, t) { return `\\htmlClass{${cls}}{${t}}`; }
+// t[i][j] (val) y si en esa celda conviene incluir el elemento i (keep).
+function knapsackTable(it, W) {
+  const n = it.length;
+  const val  = Array.from({ length: n + 1 }, () => new Array(W + 1).fill(0));
+  const keep = Array.from({ length: n + 1 }, () => new Array(W + 1).fill(false));
+
+  for (let i = 1; i <= n; i++) {
+    const wi = it[i - 1].weight;
+    const vi = it[i - 1].value;
+    for (let j = 0; j <= W; j++) {
+      const skip = val[i - 1][j];
+      const take = j >= wi ? vi + val[i - 1][j - wi] : -Infinity;
+      if (take > skip) { val[i][j] = take; keep[i][j] = true; }
+      else             { val[i][j] = skip; keep[i][j] = false; }
+    }
+  }
+  return { val, keep };
+}
+
 // Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
 function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
 // Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
@@ -364,6 +383,15 @@ const COMPLEXITY = {
   ],
   note: "Cada celda se calcula una sola vez mirando dos celdas de la fila anterior: $O(1)$ por celda y $(n+1)(W+1)$ celdas, así que es $O(n \\cdot W)$ en tiempo y en memoria. Es pseudo-polinomial: $W$ es un valor, no un tamaño; escrito en binario ocupa $\\log W$ bits, y agregarle un bit duplica el trabajo. Si solo interesa el valor óptimo, alcanza con una fila: $O(W)$ de memoria.",
 };
+
+// Auto-chequeo con el ejemplo por defecto: con 4 kg conviene Laptop + Guitarra (300 + 150 = 450),
+// no Estéreo + Guitarra (350) ni la Laptop sola (300).
+(function selfCheck() {
+  const it = [{ weight: 3, value: 200 }, { weight: 3, value: 300 }, { weight: 1, value: 150 }];
+  const { val, keep } = knapsackTable(it, 4);
+  console.assert(val[3][4] === 450, 'Mochila: valor óptimo con 4 kg', val[3][4]);
+  console.assert(keep[3][4] && keep[2][3] && !keep[1][0], 'Mochila: se eligen Guitarra y Laptop');
+})();
 
 createApp({
   setup() {
@@ -409,19 +437,7 @@ createApp({
 
       if (n === 0 || W < 1) return;
 
-      const val  = Array.from({ length: n + 1 }, () => new Array(W + 1).fill(0));
-      const keep = Array.from({ length: n + 1 }, () => new Array(W + 1).fill(false));
-
-      for (let i = 1; i <= n; i++) {
-        const wi = it[i - 1].weight;
-        const vi = it[i - 1].value;
-        for (let j = 0; j <= W; j++) {
-          const skip = val[i - 1][j];
-          const take = j >= wi ? vi + val[i - 1][j - wi] : -Infinity;
-          if (take > skip) { val[i][j] = take; keep[i][j] = true; }
-          else             { val[i][j] = skip; keep[i][j] = false; }
-        }
-      }
+      const { val, keep } = knapsackTable(it, W);
 
       rawVal.value  = val;
       rawKeep.value = keep;

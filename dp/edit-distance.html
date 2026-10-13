@@ -329,6 +329,29 @@ function computeSteps(A, B, dp, ins, del, rep) {
 // (\htmlClass necesita `trust`, solo para ese comando; `strict: 'ignore'` calla el aviso de extensión HTML).
 const KATEX_OPTS = { throwOnError: false, trust: ctx => ctx.command === '\\htmlClass', strict: 'ignore' };
 function box(cls, t) { return `\\htmlClass{${cls}}{${t}}`; }
+function editTable(A, B, ins, del, rep) {
+  const m = A.length, n = B.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+  // Casos base
+  for (let i = 0; i <= m; i++) dp[i][0] = i * del;
+  for (let j = 0; j <= n; j++) dp[0][j] = j * ins;
+
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++) {
+      if (A[i-1] === B[j-1]) {
+        dp[i][j] = dp[i-1][j-1]; // sin costo
+      } else {
+        dp[i][j] = Math.min(
+          dp[i-1][j]   + del,   // eliminar A[i]
+          dp[i][j-1]   + ins,   // insertar B[j]
+          dp[i-1][j-1] + rep    // sustituir
+        );
+      }
+    }
+  return dp;
+}
+
 // Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
 function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
 // Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
@@ -348,6 +371,13 @@ const COMPLEXITY = {
   ],
   note: "Cada celda mira tres vecinas ya calculadas (arriba, izquierda, diagonal): $O(1)$ por celda, así que es $O(m \\cdot n)$ en tiempo y en memoria. Si solo interesa la distancia, alcanzan dos filas: $O(\\min(m, n))$ de memoria.",
 };
+
+// Auto-chequeo con el ejemplo por defecto: de "saturday" a "sunday" hay 3 operaciones
+// (eliminar a, eliminar t, sustituir r por n); con sustitución de costo 2, 4.
+(function selfCheck() {
+  console.assert(editTable('saturday', 'sunday', 1, 1, 1)[8][6] === 3, 'Distancia de edición: saturday → sunday');
+  console.assert(editTable('saturday', 'sunday', 1, 1, 2)[8][6] === 4, 'Distancia de edición: saturday → sunday con sustitución de costo 2');
+})();
 
 createApp({
   setup() {
@@ -373,25 +403,7 @@ createApp({
       const m = A.length, n = B.length;
       const ins = costIns.value, del = costDel.value, rep = costRep.value;
 
-      const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-
-      // Casos base
-      for (let i = 0; i <= m; i++) dp[i][0] = i * del;
-      for (let j = 0; j <= n; j++) dp[0][j] = j * ins;
-
-      for (let i = 1; i <= m; i++)
-        for (let j = 1; j <= n; j++) {
-          if (A[i-1] === B[j-1]) {
-            dp[i][j] = dp[i-1][j-1]; // sin costo
-          } else {
-            dp[i][j] = Math.min(
-              dp[i-1][j]   + del,   // eliminar A[i]
-              dp[i][j-1]   + ins,   // insertar B[j]
-              dp[i-1][j-1] + rep    // sustituir
-            );
-          }
-        }
-
+      const dp = editTable(A, B, ins, del, rep);
       dpTable.value = dp;
       solvedA.value = A; solvedB.value = B;
       steps.value = computeSteps(A, B, dp, ins, del, rep);

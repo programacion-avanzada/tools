@@ -550,6 +550,15 @@ const COMPLEXITY = {
   note: "En el peor caso no se poda nada y se generan los $2^{n+1} - 1$ nodos del árbol. Si el nodo guarda beneficio, peso y profundidad, la factibilidad cuesta $O(1)$, pero la cota (mochila fraccionaria) recorre los ítems que faltan: $O(n)$ por nodo si ya están ordenados por $p/w$ (ordenarlos una vez al principio cuesta $O(n \\log n)$). Con la cola de prioridad, insertar y extraer cuestan $O(\\log 2^n) = O(n)$. Total: $O(n \\cdot 2^n)$ con cualquiera de las tres estrategias. La poda no cambia el peor caso, pero en la práctica genera muchos menos nodos. En memoria, FIFO y Best-First pueden llegar a tener $O(2^n)$ nodos pendientes a la vez; LIFO, como DFS, tiene $O(n)$.",
 };
 
+// Auto-chequeo con el ejemplo por defecto: con capacidad 16 el óptimo es 90 (los objetos de 40 y 50, peso 12),
+// con cualquier estrategia.
+(function selfCheck() {
+  for (const s of Object.keys(STRATEGIES)) {
+    const end = computeSteps(DEFAULT_STATE.items, DEFAULT_STATE.capacity, s).steps.at(-1);
+    console.assert(end.best === 90, `Mochila B&B (${s}): valor óptimo`, end.best);
+  }
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-bnb-knapsack';

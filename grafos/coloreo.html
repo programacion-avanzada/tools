@@ -686,6 +686,20 @@ function complexityFor(mode, strategy) {
   };
 }
 
+// Auto-chequeo con el grafo por defecto (3, 4, 5 y 7 forman un K4, así que hacen falta al menos 4 colores):
+// el secuencial y Matula (grado creciente) usan 5, Welsh-Powell (grado decreciente) llega a 4;
+// en todos los modos y estrategias, ninguna arista une dos vértices del mismo color.
+(function selfCheck() {
+  const { nodeLabels, edges } = parseGraphText(DEFAULT_GRAPH_TEXT);
+  const adj = buildAdjacency(nodeLabels, edges);
+  const expected = { secuencial: 5, welsh: 4, matula: 5 };
+  for (const mode of Object.keys(MODES)) for (const strategy of Object.keys(STRATEGIES)) {
+    const end = computeSteps(adj, nodeLabels, mode, strategy).at(-1);
+    console.assert(end.maxColor === expected[mode], `Coloreo ${mode}/${strategy}: cantidad de colores`, end.maxColor);
+    console.assert(edges.every(e => end.colors[e.a] !== end.colors[e.b]), `Coloreo ${mode}/${strategy}: coloreo válido`, end.colors);
+  }
+})();
+
 createApp({
   setup() {
     const STORAGE_KEY = 'pa-tools-grafos-coloreo';
