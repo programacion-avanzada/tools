@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Floyd · Warshall — Caminos entre todos los pares</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .main-row { flex: 1 1 auto; display: flex; min-height: 0; }
+    .left-col { flex: 2 1 0; display: flex; flex-direction: column; min-width: 0; }
+    .matrices-wrap { flex: 0 0 auto; max-height: 70%; overflow: auto; padding: .75rem; }
+    .canvas-wrap { flex: 1 1 0; position: relative; overflow: hidden; min-height: 220px; border-top: 1px solid var(--bs-border-color); }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    .code-panel { flex: 1 1 0; overflow-y: auto; border-left: 1px solid var(--bs-border-color); min-width: 300px; }
+    .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
+    .empty-state-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .editor-panel { position: absolute; bottom: .75rem; left: .75rem; width: 300px; max-width: calc(100% - 1.5rem); max-height: calc(100% - 1.5rem); overflow: auto; }
+    .pseudo-code { font-family: Consolas, monospace; font-size: .8rem; white-space: pre; padding: .5rem 0; overflow-x: auto; }
+    .pseudo-line { padding: .1rem .75rem; min-height: 1.2em; }
+    .pseudo-added { color: var(--bs-success-text-emphasis); }
+    .pseudo-active { background: var(--bs-warning-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .dp-cell { cursor: pointer; transition: background-color .15s; min-width: 2.6em; height: 2.2em; white-space: nowrap; }
+    .dp-cell:hover { background-color: var(--bs-tertiary-bg) !important; }
+    .cell-selected  { background-color: var(--bs-success-bg-subtle) !important; outline: 2px solid var(--bs-success-border-subtle); }
+    .cell-dep-skip  { background-color: var(--bs-primary-bg-subtle) !important; outline: 2px solid var(--bs-primary-border-subtle); }
+    .cell-dep-via   { background-color: var(--bs-warning-bg-subtle) !important; outline: 2px solid var(--bs-warning-border-subtle); }
+    .cell-chain     { background-color: var(--bs-info-bg-subtle) !important; outline: 2px solid var(--bs-info-border-subtle); }
+    .cell-pivot     { background-color: var(--bs-secondary-bg-subtle) !important; }
+    /* Matrices en --mcols columnas (todas en una fila, o 2×2) y todo en em, escalado con --mscale (ver fitMatrices). */
+    .matrix-grid { display: grid; grid-template-columns: repeat(var(--mcols, 4), auto); width: max-content; margin: 0 auto; align-items: start; gap: .75em; font-size: calc(1rem * var(--mscale, 1)); }
+    .matrix-grid .table { font-size: 1.35em; }
+    .matrix-note { width: 0; min-width: 100%; } /* no ensancha la card: se parte al ancho de la tabla */
+    .katex .cell-selected, .katex .cell-dep-skip, .katex .cell-dep-via { padding: .1em .25em; border-radius: .2em; }
+    .swatch-path { background-color: #d63384; }
+    @media (max-width: 768px) {
+      #app { height: auto; }
+      .main-row { flex-direction: column; }
+      .canvas-wrap { flex: none; height: 320px; }
+      .code-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
+    }
+    summary.card-header { cursor: pointer; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <a class="navbar-brand mb-0 h5" href="../index.html" title="Volver a todas las herramientas"><span class="opacity-75 me-1">←</span>🧭 Floyd · Warshall</a>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">DP · O(V³)</span>
+      <select class="form-select form-select-sm" style="width:auto" v-model="algorithm" @change="onAlgorithmChange" title="Algoritmo">
+        <option value="floyd">Floyd (costos mínimos)</option>
+        <option value="warshall">Warshall (¿hay camino?)</option>
+      </select>
+      <div class="btn-group btn-group-sm" title="De a cuánto avanza cada paso">
+        <button class="btn" :class="granularity === 'k' ? 'btn-light' : 'btn-outline-light'" @click="setGranularity('k')" title="Cada paso completa un k entero">🔢 Por k</button>
+        <button class="btn" :class="granularity === 'cell' ? 'btn-light' : 'btn-outline-light'" @click="setGranularity('cell')" title="Cada paso calcula una celda">🔎 Por celda</button>
+      </div>
+      <button class="btn btn-sm btn-outline-light" @click="toggleDirected" title="Cambiar entre grafo dirigido y no dirigido">
+        {{ directed ? '➡️ Dirigido' : '↔️ No dirigido' }}
+      </button>
+      <div class="btn-group btn-group-sm" v-if="nodes.length">
+        <button class="btn btn-outline-light" @click="restartAnimation" title="Volver al principio">⏮</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="isAtStart" title="Paso anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente">⏩</button>
+      </div>
+      <input v-if="nodes.length" type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
+        v-model.number="speedMs" title="Velocidad de reproducción" />
+      <button class="btn btn-sm" :class="showEditor ? 'btn-light' : 'btn-outline-light'" @click="showEditor = !showEditor" title="Editar el grafo">✏️ Editar grafo</button>
+      <button class="btn btn-sm btn-outline-light" @click="fitToView(true)" title="Ajustar vista" v-if="nodes.length">🎯</button>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver al grafo de ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir este grafo">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="main-row">
+    <div class="left-col" ref="leftColEl">
+      <div class="matrices-wrap" v-if="currentStep">
+        <div class="d-flex flex-wrap align-items-center justify-content-center gap-1 mb-3">
+          <span class="small text-muted me-1">Ir a:</span>
+          <button v-for="b in kButtons" :key="b.k" class="btn btn-sm" :class="b.k === activeK ? 'btn-secondary' : 'btn-outline-secondary'"
+            @click="jumpToK(b.k)" :title="b.title">{{ b.text }}</button>
+        </div>
+        <div class="matrix-grid" ref="gridEl">
+          <div class="card" v-for="m in matrices" :key="m.key">
+            <div class="card-header py-1 px-2 small fw-semibold text-center">
+              <span v-html="tex(m.title)"></span> <span class="text-muted fw-normal">{{ m.name }}</span>
+            </div>
+            <div class="card-body p-2">
+              <table class="table table-sm table-bordered text-center align-middle mb-0 font-monospace" style="width: auto;">
+                <thead>
+                  <tr>
+                    <th class="dp-header-cell"></th>
+                    <th class="dp-header-cell" v-for="(l, j) in labels" :key="j">{{ l }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(l, i) in labels" :key="i">
+                    <th class="dp-header-cell">{{ l }}</th>
+                    <td v-for="(_, j) in labels" :key="j" class="dp-cell" :class="cellClass(m.key, i, j)" @click="selectCell(i, j)">
+                      <template v-if="isImproved(m.key, i, j)"><s class="text-muted small">{{ oldText(m.key, i, j) }}</s> <b>{{ cellText(m.key, i, j) }}</b></template>
+                      <template v-else>{{ cellText(m.key, i, j) }}</template>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="small text-muted text-center mt-1 matrix-note">{{ m.note }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="canvas-wrap" ref="containerEl">
+        <canvas
+          ref="canvasEl"
+          @mousedown="onCanvasMouseDown"
+          @mousemove="onCanvasMouseMove"
+          @mouseup="onCanvasMouseUp"
+          @mouseleave="onCanvasMouseUp"
+          @wheel.prevent="onCanvasWheel"
+        ></canvas>
+
+        <div class="empty-state-overlay" v-if="!nodes.length">
+          <div class="card shadow-sm" style="max-width: 380px;">
+            <div class="card-body text-center">
+              <div class="fs-1">🧭</div>
+              <p class="mt-2 mb-0 text-muted">Cargá un grafo con "✏️ Editar grafo" para empezar.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card shadow-sm editor-panel" v-if="showEditor">
+          <div class="card-body p-2">
+            <label class="form-label small text-muted mb-1">
+              Aristas con peso, una por línea o separadas por coma: <code>1-2:4</code> (sin peso = 1, se admiten negativos). Nodo aislado: <code>5</code>. Warshall ignora los pesos.
+            </label>
+            <textarea class="form-control form-control-sm mb-2" rows="6" v-model="graphTextDraft" style="font-family: monospace"></textarea>
+            <div class="alert alert-danger small py-1 px-2 mb-2" v-if="graphError">{{ graphError }}</div>
+            <button class="btn btn-dark btn-sm w-100" @click="applyGraphText">▶ Aplicar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-panel">
+      <div class="p-3">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">💻 Pseudocódigo</div>
+          <div class="card-body p-0">
+            <div class="pseudo-code">
+              <div v-for="(line, idx) in pseudocode" :key="idx" class="pseudo-line"
+                :class="{ 'pseudo-active': activeLines.includes(idx), 'pseudo-added': line.includes('Z[') }"
+                :title="line.includes('Z[') ? 'Agregada para armar la matriz de predecesores' : ''">{{ line }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">🔍 Explicación</div>
+          <div class="card-body">
+            <p class="text-muted text-center py-3 mb-0" v-if="!currentStep">Cargá un grafo para empezar.</p>
+            <template v-else>
+              <span class="badge fs-6 text-wrap text-start" :class="stepBadge.cls">{{ stepBadge.icon }} {{ stepBadge.text }}</span>
+              <p class="small text-muted mt-3 mb-0">{{ progressText }}</p>
+            </template>
+          </div>
+        </div>
+
+        <div class="card mb-3" v-show="currentStep">
+          <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+            <span>📌 {{ focus ? `Celda (${labels[focus.i]}, ${labels[focus.j]})` : 'Recurrencia' }}</span>
+            <button class="btn btn-sm btn-outline-secondary py-0" v-if="selected" @click="clearSelection" title="Volver a seguir la celda del paso (Esc)">✕</button>
+          </div>
+          <div class="card-body">
+            <div id="formula-box" class="bg-body-tertiary rounded p-2 overflow-auto"></div>
+            <div id="subst-box" class="bg-body-tertiary rounded p-2 mt-2 overflow-auto" v-show="explain.subst"></div>
+            <span class="badge text-wrap text-start mt-2" v-if="explain.verdict && selected" :class="explain.verdict.cls">{{ explain.verdict.icon }} {{ explain.verdict.text }}</span>
+            <p class="small mt-2 mb-0" v-if="explain.interp" v-html="explain.interp"></p>
+            <p class="small text-muted mt-2 mb-0" v-if="explain.hint">{{ explain.hint }}</p>
+          </div>
+        </div>
+
+        <details class="card mb-3">
+          <summary class="card-header fw-semibold">⏱️ Complejidad: <span v-html="tex(complexity.total)"></span></summary>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered align-middle mb-2 small">
+              <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                  <td class="font-monospace">{{ r[0] }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }" v-html="tex(c)"></td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="small mb-0" v-html="texInline(complexity.note)"></p>
+          </div>
+        </details>
+
+        <div class="card">
+          <div class="card-header fw-semibold">Leyenda</div>
+          <ul class="list-group list-group-flush small">
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-success">&nbsp;&nbsp;</span> Celda en foco (la del paso o la clickeada) / sus extremos i, j en el grafo</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-primary">&nbsp;&nbsp;</span> En las matrices anteriores: C[i][j] (y Z[i][j]), el camino sin pasar por k</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-warning text-dark">&nbsp;&nbsp;</span> En las matrices anteriores: C[i][k] y C[k][j] (y Z[k][j]), el camino pasando por k / nodo k en el grafo</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge bg-secondary">&nbsp;&nbsp;</span> Fila y columna k: no cambian en esta iteración</li>
+            <li class="list-group-item d-flex align-items-center gap-2" v-if="isFloyd"><span class="badge bg-info text-dark">&nbsp;&nbsp;</span> Cadena de predecesores en Z para reconstruir el camino</li>
+            <li class="list-group-item d-flex align-items-center gap-2" v-if="isFloyd"><span class="badge swatch-path">&nbsp;&nbsp;</span> Camino reconstruido en el grafo</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span v-if="isFloyd"><s class="text-muted">∞</s> <b>6</b></span><span v-else><s class="text-muted">0</s> <b>1</b></span> Celda que mejoró en esta iteración (valor viejo tachado)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar text-center small border-top">
+    <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } = Vue;
+
+const PSEUDOCODE = {
+  floyd: [
+    'ALGORITMO Floyd(w)',
+    '    dist = matriz[|V|][|V|] inicializada a ∞',
+    '    PARA CADA arista (u, v) HACER',
+    '        dist[u][v] = w(u, v)',
+    '        Z[u][v] = u',
+    '    PARA CADA vértice v HACER',
+    '        dist[v][v] = 0',
+    '        Z[v][v] = v',
+    '    PARA k DESDE 1 HASTA |V| HACER',
+    '        PARA i DESDE 1 HASTA |V| HACER',
+    '            PARA j DESDE 1 HASTA |V| HACER',
+    '                SI dist[i][j] > dist[i][k] + dist[k][j] ENTONCES',
+    '                    dist[i][j] = dist[i][k] + dist[k][j]',
+    '                    Z[i][j] = Z[k][j]',
+  ],
+  warshall: [
+    'ALGORITMO Warshall(w)',
+    '    cone = matriz[|V|][|V|] inicializada a FALSO',
+    '    PARA CADA arista (u, v) HACER',
+    '        cone[u][v] = VERDADERO SI w(u, v) < ∞',
+    '    PARA CADA vértice v HACER',
+    '        cone[v][v] = VERDADERO',
+    '    PARA k DESDE 1 HASTA |V| HACER',
+    '        PARA i DESDE 1 HASTA |V| HACER',
+    '            PARA j DESDE 1 HASTA |V| HACER',
+    '                cone[i][j] = cone[i][j] O (cone[i][k] Y cone[k][j])',
+  ],
+};
+// Líneas activas de cada tipo de paso, por algoritmo.
+const LINES = {
+  floyd: { edges: [1, 2, 3, 4], diag: [5, 6, 7], kStart: [8], check: [9, 10, 11], update: [9, 10, 11, 12, 13] },
+  warshall: { edges: [1, 2, 3], diag: [4, 5], kStart: [6], check: [7, 8, 9], update: [7, 8, 9] },
+};
+
+// El grafo de las diapositivas de la cátedra.
+const DEFAULT_GRAPH_TEXT = '1-2:4\n2-1:4\n2-3:2\n3-1:1\n3-4:2\n4-3:2\n4-2:3';
+const DEFAULT_POSITIONS = { 1: { x: -150, y: 30 }, 2: { x: -30, y: -110 }, 3: { x: 110, y: 100 }, 4: { x: 160, y: -50 } };
+
+function edgeKey(a, b, directed) { return directed ? `${a}>${b}` : [a, b].sort().join('|'); }
+// Orden de los nodos en matriz, arrays y seguimiento: numérico si todas las etiquetas son números,
+// si no lexicográfico ("10" antes que "2", "A10" antes que "A2").
+function sortLabels(labels) {
+  const allNumeric = labels.every(l => l.trim() !== '' && !isNaN(l));
+  return [...labels].sort(allNumeric
+    ? (a, b) => Number(a) - Number(b)
+    : (a, b) => a.localeCompare(b, 'es'));
+}
+function fmt(x) { return x === Infinity ? '∞' : x; }
+// Etiqueta de nodo lista para KaTeX (se sacan los caracteres especiales de LaTeX).
+function texLabel(label) { return `\\text{${String(label).replace(/[\\{}_^$&%#~]/g, '')}}`; }
+function texNum(x) { return x === Infinity ? '\\infty' : x; }
+function texBool(x) { return x ? '\\text{V}' : '\\text{F}'; }
+
+// ── Parseo del grafo: "A-B:3" declara una arista de peso 3 (sin ":peso" vale 1),
+// "G" sola declara un nodo aislado.
+function parseGraphText(text, directed) {
+  const tokens = text.split(/[\n,]/).map(t => t.trim()).filter(Boolean);
+  const nodeLabels = [];
+  const nodeSet = new Set();
+  const edgeSet = new Set();
+  const edges = [];
+  function addNode(label) {
+    if (!nodeSet.has(label)) { nodeSet.add(label); nodeLabels.push(label); }
+  }
+  for (const tok of tokens) {
+    const [edgePart, weightPart] = tok.split(':').map(s => s.trim());
+    // Separa por el guion entre nodos, no por el signo de un peso negativo (que va después de ':').
+    const parts = edgePart.split('-').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const [a, b] = parts;
+      const w = weightPart === undefined ? 1 : Number(weightPart);
+      if (weightPart === '' || !Number.isFinite(w)) return { error: `Peso inválido en "${tok}".` };
+      addNode(a); addNode(b);
+      if (a === b) continue;
+      const key = edgeKey(a, b, directed);
+      if (!edgeSet.has(key)) { edgeSet.add(key); edges.push({ a, b, w, key }); }
+    } else if (parts.length === 1) {
+      addNode(parts[0]);
+    }
+  }
+  return { nodeLabels, edges };
+}
+
+// W[i][j] = peso de la arista (i, j), o undefined si no hay; índices según el orden de `labels`.
+function weightMatrix(labels, edges, directed) {
+  const idx = new Map(labels.map((l, i) => [l, i]));
+  const W = labels.map(() => labels.map(() => undefined));
+  for (const { a, b, w } of edges) {
+    W[idx.get(a)][idx.get(b)] = w;
+    if (!directed) W[idx.get(b)][idx.get(a)] = w;
+  }
+  return W;
+}
+
+// Posición de una celda (i, j) fuera de la fila/columna k en el recorrido por filas de esa iteración.
+function cellRank(n, k, i, j) { return (i - (i > k)) * (n - 1) + (j - (j > k)); }
+// ¿La celda ya tiene su valor en el paso? En la iteración k, la fila y la columna k se copian al empezar
+// y el resto se llena de a una (los pasos "init" y "end" están completos).
+function isFilled(s, i, j) {
+  if (s.kIdx < 0 || s.phase === 'end') return true;
+  const k = s.kIdx;
+  return i === k || j === k || cellRank(s.cur.length, k, i, j) < s.done;
+}
+
+// Veredicto de una celda (i, j) en la iteración k: qué rama de la recurrencia se tomó.
+function verdict(floyd, L, i, j, k, a, b, c, r, zNew) {
+  const I = L[i], J = L[j], K = L[k];
+  if ((i === k || j === k) && r === a) {
+    return { icon: '📌', text: `Celda de la ${i === k ? 'fila' : 'columna'} ${K}: pasar por ${K} para ${i === k ? 'salir de' : 'llegar a'} ${K} no aporta nada, se copia de la matriz anterior.`, cls: 'bg-secondary' };
+  }
+  if (floyd) {
+    const sum = b + c;
+    if (r !== a) return { icon: '🔀', text: `Pasar por ${K} mejora: ${fmt(b)} + ${fmt(c)} = ${fmt(sum)} < ${fmt(a)}. C[${I}][${J}] = ${fmt(sum)} y Z[${I}][${J}] = Z[${K}][${J}] = ${zNew}.`, cls: 'bg-warning text-dark' };
+    if (a === Infinity) return { icon: '🚫', text: `Ni sin pasar por ${K} ni pasando por ${K} hay camino de ${I} a ${J}: sigue en ∞.`, cls: 'bg-secondary' };
+    return { icon: '➖', text: `Pasar por ${K} no mejora: ${fmt(b)} + ${fmt(c)} = ${fmt(sum)} ≥ ${fmt(a)}. Se mantiene.`, cls: 'bg-primary' };
+  }
+  if (a) return { icon: '✅', text: `Ya había camino de ${I} a ${J}: sigue en 1.`, cls: 'bg-primary' };
+  if (b && c) return { icon: '🔀', text: `Hay camino de ${I} a ${K} y de ${K} a ${J}: ahora hay camino de ${I} a ${J} pasando por ${K}.`, cls: 'bg-warning text-dark' };
+  const missing = [!b && `de ${I} a ${K}`, !c && `de ${K} a ${J}`].filter(Boolean).join(' ni ');
+  return { icon: '🚫', text: `No hay camino ${missing}: sigue sin haber camino de ${I} a ${J}.`, cls: 'bg-secondary' };
+}
+
+// ── Corre el algoritmo una sola vez y arma los pasos. Cada iteración k calcula C^k entera a partir de C^(k−1)
+// (como la recurrencia; sin ciclos negativos da lo mismo que el pseudocódigo en el lugar). Los pasos no copian
+// matrices: guardan referencias a C^(k−1) y C^k y cuántas celdas de C^k ya se llenaron (`done`).
+function computeSteps(L, W, algo) {
+  const floyd = algo === 'floyd';
+  const lines = LINES[algo];
+  const n = L.length;
+  const steps = [];
+  if (!n) return steps;
+  const blank = v => Array.from({ length: n }, () => Array(n).fill(v));
+
+  const C0 = blank(floyd ? Infinity : false), Z0 = blank(null);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (W[i][j] !== undefined) { C0[i][j] = floyd ? W[i][j] : true; Z0[i][j] = i; }
+  }
+  steps.push({ phase: 'init', kIdx: -1, prev: null, cur: C0, Z: Z0, Zprev: null, W, done: 0, activeLines: lines.edges,
+    badge: floyd
+      ? { icon: '🏗️', text: 'Se carga cada arista: C[u][v] = w(u, v) y Z[u][v] = u (vengo directo de u). Lo que no es arista queda en ∞.', cls: 'bg-secondary' }
+      : { icon: '🏗️', text: 'Cada arista (u, v) marca que hay camino de u a v: C[u][v] = 1. El resto queda en 0.', cls: 'bg-secondary' } });
+
+  let C = C0.map(r => [...r]), Z = Z0.map(r => [...r]);
+  for (let v = 0; v < n; v++) { C[v][v] = floyd ? 0 : true; Z[v][v] = v; }
+  const diagBadge = floyd
+    ? { icon: '🎯', text: 'La diagonal: ir de un nodo a sí mismo cuesta 0. C⁰ son los caminos sin intermediarios (solo aristas directas).', cls: 'bg-success' }
+    : { icon: '🎯', text: 'La diagonal: cada nodo llega a sí mismo. C⁰ es la matriz de adyacencia: caminos sin intermediarios.', cls: 'bg-success' };
+  // `summary`: el modo "por k" se detiene en este paso (C⁰ completa) y en el último de cada k.
+  steps.push({ phase: 'init', kIdx: -1, prev: null, cur: C, Z, Zprev: null, W, done: 0, activeLines: lines.diag, badge: diagBadge, summary: diagBadge });
+
+  let P, ZP;
+  for (let k = 0; k < n; k++) {
+    P = C; ZP = Z;
+    const N = blank(null), NZ = blank(null);
+    const improved = [];
+    const relax = (i, j) => {
+      N[i][j] = floyd ? Math.min(P[i][j], P[i][k] + P[k][j]) : (P[i][j] || (P[i][k] && P[k][j]));
+      // Floyd compara con '>': si empata, la celda (y su Z) no se toca.
+      NZ[i][j] = N[i][j] !== P[i][j] ? ZP[k][j] : ZP[i][j];
+      return verdict(floyd, L, i, j, k, P[i][j], P[i][k], P[k][j], N[i][j], L[NZ[i][j]]);
+    };
+    for (let x = 0; x < n; x++) { relax(x, k); relax(k, x); }
+    steps.push({ phase: 'kstart', kIdx: k, prev: P, cur: N, Z: NZ, Zprev: ZP, done: 0, activeLines: lines.kStart,
+      badge: { icon: '🔁', text: `k = ${k + 1}: ahora ${L[k]} puede ser intermediario. La fila y la columna de ${L[k]} no cambian (pasar por ${L[k]} para salir de ${L[k]} o llegar a ${L[k]} no aporta nada), así que se copian.`, cls: 'bg-secondary' } });
+
+    let done = 0;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      if (i === k || j === k) continue;
+      const badge = relax(i, j);
+      const changed = N[i][j] !== P[i][j];
+      if (changed) improved.push(`(${L[i]}, ${L[j]})`);
+      steps.push({ phase: 'cell', kIdx: k, i, j, prev: P, cur: N, Z: NZ, Zprev: ZP, done: ++done,
+        activeLines: changed ? lines.update : lines.check, badge });
+    }
+    const verb = floyd ? 'mejoraron' : 'pasaron a 1';
+    steps[steps.length - 1].summary = improved.length
+      ? { icon: '📊', text: `Con k = ${k + 1} (pasando por ${L[k]}) ${improved.length === 1 ? (floyd ? 'mejoró' : 'pasó a 1') + ' 1 celda' : `${verb} ${improved.length} celdas`}: ${improved.join(', ')}.`, cls: 'bg-warning text-dark' }
+      : { icon: '📊', text: `Con k = ${k + 1} (pasando por ${L[k]}) no cambió ninguna celda.`, cls: 'bg-secondary' };
+    C = N; Z = NZ;
+  }
+
+  const negative = floyd ? L.filter((_, v) => C[v][v] < 0) : [];
+  const endBadge = negative.length
+      ? { icon: '⚠️', text: `Hay un ciclo de costo negativo: C[v][v] < 0 para v ∈ {${negative.join(', ')}}. Los caminos que pasan por él no tienen mínimo.`, cls: 'bg-danger' }
+      : floyd
+        ? { icon: '🏁', text: 'Terminó: C tiene el costo mínimo entre cada par de nodos y con Z se reconstruye cada camino. Clickeá una celda para leerla.', cls: 'bg-success' }
+        : { icon: '🏁', text: 'Terminó: C es la clausura transitiva, 1 si existe al menos un camino entre ese par. Clickeá una celda para leerla.', cls: 'bg-success' };
+  // "Por k" termina en el resumen del último k (con el cierre agregado); "por celda" tiene un paso más para el cierre.
+  const last = steps[steps.length - 1];
+  last.summary = { icon: endBadge.icon, text: `${last.summary.text} ${endBadge.text}`, cls: endBadge.cls };
+  steps.push({ phase: 'end', kIdx: n - 1, prev: P, cur: C, Z, Zprev: ZP, done: (n - 1) ** 2, activeLines: [], badge: endBadge });
+  return steps;
+}
+
+// Camino de i a j según Z (índices), leyendo cada celda de C^k si ya se calculó, si no de C^(k−1)
+// (es lo que tiene el pseudocódigo en el lugar en ese momento). null si no hay o si Z cicla.
+function reconstructPath(s, i, j) {
+  const n = s.cur.length;
+  const path = [j];
+  let x = j;
+  while (x !== i) {
+    const p = (s.Zprev && !isFilled(s, i, x)) ? s.Zprev[i][x] : s.Z[i][x];
+    if (p == null || path.length > n) return null;
+    path.unshift(p);
+    x = p;
+  }
+  return path;
+}
+
+// ── Layout inicial circular: los nodos que ya tenían posición la conservan,
+// los nuevos se ubican en círculo según su índice en la lista total de nodos.
+function layoutNodes(nodeLabels, existingPositions) {
+  const R = 160;
+  const positions = {};
+  nodeLabels.forEach((label, i) => {
+    if (existingPositions[label]) { positions[label] = existingPositions[label]; return; }
+    const angle = (i / nodeLabels.length) * Math.PI * 2 - Math.PI / 2;
+    positions[label] = { x: Math.cos(angle) * R, y: Math.sin(angle) * R };
+  });
+  return positions;
+}
+
+// Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
+function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
+// Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
+function texInline(s) {
+  return s.split('$').map((t, i) => i % 2 ? tex(t) : t.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('');
+}
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total]; veces, costo y total en LaTeX.
+const COMPLEXITY = {
+  floyd: {
+    total: 'O(V^3)',
+    headers: ['Línea', 'Veces', 'Costo'],
+    rows: [
+      ['dist = matriz[|V|][|V|] inicializada a ∞', 'V^2', 'O(V^2)'],
+      ['PARA CADA arista (u, v): dist[u][v] = w(u, v); Z[u][v] = u', 'E', 'O(E)'],
+      ['PARA CADA vértice v: dist[v][v] = 0; Z[v][v] = v', 'V', 'O(V)'],
+      ['PARA k / PARA i / PARA j', 'V^3', 'O(V^3)'],
+      ['SI dist[i][j] > dist[i][k] + dist[k][j]', 'V^3', 'O(V^3)'],
+      ['dist[i][j] = …; Z[i][j] = Z[k][j]', '\\le V^3', 'O(V^3)'],
+    ],
+    note: 'Total: $O(V^2) + O(E) + O(V^3) = O(V^3)$, sin importar cuántas aristas tenga el grafo. Memoria: $O(V^2)$, porque el pseudocódigo trabaja sobre una sola matriz: en la iteración $k$ la fila y la columna $k$ no cambian ($C_{k,k} = 0$), así que da lo mismo leer $C^{k-1}$ o $C^k$ (la herramienta muestra las dos solo para seguir la recurrencia). Correr Dijkstra desde cada vértice cuesta $O(V\\,(V+E) \\log V)$: Floyd conviene en grafos densos ($E \\approx V^2$) y además admite pesos negativos, siempre que no haya ciclos negativos (se detectan porque al final queda algún $C_{v,v} < 0$).',
+  },
+  warshall: {
+    total: 'O(V^3)',
+    headers: ['Línea', 'Veces', 'Costo'],
+    rows: [
+      ['cone = matriz[|V|][|V|] inicializada a FALSO', 'V^2', 'O(V^2)'],
+      ['PARA CADA arista (u, v): cone[u][v] = VERDADERO', 'E', 'O(E)'],
+      ['PARA CADA vértice v: cone[v][v] = VERDADERO', 'V', 'O(V)'],
+      ['PARA k / PARA i / PARA j', 'V^3', 'O(V^3)'],
+      ['cone[i][j] = cone[i][j] O (cone[i][k] Y cone[k][j])', 'V^3', 'O(V^3)'],
+    ],
+    note: 'Total: $O(V^3)$ y memoria $O(V^2)$. Es la misma estructura que Floyd cambiando $(\\min, +)$ por $(\\lor, \\land)$: solo importa si hay camino, no cuánto cuesta. Alternativa: un DFS o BFS desde cada vértice, $O(V\\,(V+E))$, que conviene en grafos ralos.',
+  },
+};
+
+// Auto-chequeo con el ejemplo de las diapositivas: C y Z finales de "Seguimiento" y Warshall con k = 1.
+(function selfCheck() {
+  const { nodeLabels, edges } = parseGraphText(DEFAULT_GRAPH_TEXT, true);
+  const L = sortLabels(nodeLabels);
+  const W = weightMatrix(L, edges, true);
+  const end = computeSteps(L, W, 'floyd').at(-1);
+  console.assert(JSON.stringify(end.cur) === '[[0,4,6,8],[3,0,2,4],[1,5,0,2],[3,3,2,0]]', 'Floyd: C final', end.cur);
+  console.assert(JSON.stringify(end.Z.map(r => r.map(z => L[z]).join(''))) === '["1123","3223","3133","3444"]', 'Floyd: Z final', end.Z);
+  console.assert(JSON.stringify(reconstructPath(end, 1, 0).map(x => L[x])) === '["2","3","1"]', 'Floyd: camino de 2 a 1');
+  const k1 = computeSteps(L, W, 'warshall').find(s => s.phase === 'kstart' && s.kIdx === 0);
+  console.assert(!k1.prev[2][1] && k1.cur[2][1], 'Warshall: (3, 2) pasa a 1 con k = 1');
+})();
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-grafos-floyd-warshall';
+    const NODE_R = 22;
+    const PADDING = 40;
+
+    const nodes = ref([]);
+    const edges = ref([]);
+    const labels = ref([]);
+    const directed = ref(true);
+    const algorithm = ref('floyd');
+    const granularity = ref('cell');
+    let W = [];
+
+    const steps = ref([]);
+    const currentStepIndex = ref(0);
+    const isPlaying = ref(false);
+    const speedMs = ref(900);
+    let playTimer = null;
+    const selected = ref(null);
+
+    const showEditor = ref(false);
+    const graphTextDraft = ref(DEFAULT_GRAPH_TEXT);
+    const graphError = ref('');
+
+    const camera = reactive({ offsetX: 0, offsetY: 0, scale: 1 });
+    const userAdjustedCamera = ref(false);
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+
+    const canvasEl = ref(null);
+    const containerEl = ref(null);
+    const leftColEl = ref(null);
+    const gridEl = ref(null);
+
+    const isFloyd = computed(() => algorithm.value === 'floyd');
+    const pseudocode = computed(() => PSEUDOCODE[algorithm.value]);
+    const complexity = computed(() => COMPLEXITY[algorithm.value]);
+    const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
+    // Pasos en los que se detiene el modo "por k": C⁰ completa, el final de cada k y el cierre.
+    const kEnds = computed(() => steps.value.flatMap((s, idx) => s.summary ? [idx] : []));
+    const isAtStart = computed(() => currentStepIndex.value <= (granularity.value === 'k' ? kEnds.value[0] ?? 0 : 0));
+    const isAtEnd = computed(() => currentStepIndex.value >= (granularity.value === 'k' ? kEnds.value.at(-1) ?? 0 : steps.value.length - 1));
+    // La celda en foco: la clickeada o, en modo por celda, la que calcula el paso.
+    const focus = computed(() => {
+      if (selected.value) return selected.value;
+      const s = currentStep.value;
+      return granularity.value === 'cell' && s && s.phase === 'cell' ? { i: s.i, j: s.j } : null;
+    });
+    // En "Por k", el final de un k representa la iteración entera: se resalta todo el bloque del PARA k.
+    const activeLines = computed(() => {
+      const s = currentStep.value;
+      if (!s) return [];
+      if (granularity.value !== 'k' || !s.summary || s.kIdx < 0) return s.activeLines;
+      const from = LINES[algorithm.value].kStart[0];
+      return pseudocode.value.map((_, idx) => idx).filter(idx => idx >= from);
+    });
+    const stepBadge = computed(() => {
+      const s = currentStep.value;
+      return (granularity.value === 'k' && s.summary) || s.badge;
+    });
+    const activeK = computed(() => {
+      const s = currentStep.value;
+      return !s ? 0 : s.phase === 'end' ? labels.value.length : s.kIdx + 1;
+    });
+    const progressText = computed(() => granularity.value === 'k'
+      ? `k = ${activeK.value} de ${labels.value.length}`
+      : `Paso ${currentStepIndex.value + 1} de ${steps.value.length}`);
+    const kButtons = computed(() => [{ k: 0, text: 'C⁰', title: 'Inicialización: sin intermediarios' }]
+      .concat(labels.value.map((l, idx) => ({
+        k: idx + 1,
+        text: String(idx + 1) === l ? `k = ${l}` : `k = ${idx + 1} (${l})`,
+        title: `Iteración en la que ${l} pasa a poder ser intermediario`,
+      }))));
+
+    // ── Matrices: C^(k−1), C^k y (en Floyd) Z^k ──
+    function intermediates(count) {
+      if (!count) return 'intermediarios: ninguno (solo aristas directas)';
+      return `intermediarios en {${labels.value.slice(0, count).join(', ')}}`;
+    }
+    const matrices = computed(() => {
+      const s = currentStep.value;
+      if (!s) return [];
+      const k = s.kIdx + 1;
+      const name = isFloyd.value ? 'dist' : 'cone';
+      const list = [];
+      if (s.prev) list.push({ key: 'prev', title: `C^{${k - 1}}`, name: `${name} anterior`, note: intermediates(k - 1) });
+      list.push({ key: 'cur', title: `C^{${k}}`, name, note: intermediates(k) });
+      if (isFloyd.value && s.prev) list.push({ key: 'Zprev', title: `Z^{${k - 1}}`, name: 'predecesores anterior', note: 'Z[i][j]: nodo anterior a j en el camino desde i' });
+      if (isFloyd.value) list.push({ key: 'Z', title: `Z^{${k}}`, name: 'predecesores', note: 'Z[i][j]: nodo anterior a j en el camino desde i' });
+      return list;
+    });
+    function fmtVal(x) { return isFloyd.value ? fmt(x) : (x ? 1 : 0); }
+    function cellText(key, i, j) {
+      const s = currentStep.value;
+      if (key === 'prev') return fmtVal(s.prev[i][j]);
+      if (key === 'Zprev') return labels.value[s.Zprev[i][j]] ?? '—';
+      if (!isFilled(s, i, j)) return '';
+      if (key === 'cur') return fmtVal(s.cur[i][j]);
+      return labels.value[s.Z[i][j]] ?? '—';
+    }
+    function isImproved(key, i, j) {
+      const s = currentStep.value;
+      if (!s.prev || key === 'prev' || key === 'Zprev' || !isFilled(s, i, j)) return false;
+      return s.cur[i][j] !== s.prev[i][j];
+    }
+    function oldText(key, i, j) {
+      const s = currentStep.value;
+      return key === 'cur' ? fmtVal(s.prev[i][j]) : (labels.value[s.Zprev[i][j]] ?? '—');
+    }
+    // Camino reconstruido de la celda en foco (solo Floyd y si ya está calculada).
+    const focusPath = computed(() => {
+      const s = currentStep.value, f = focus.value;
+      if (!s || !f || !isFloyd.value || !isFilled(s, f.i, f.j) || s.cur[f.i][f.j] === Infinity) return null;
+      return reconstructPath(s, f.i, f.j);
+    });
+    function cellClass(key, i, j) {
+      const s = currentStep.value, f = focus.value, k = s.kIdx;
+      if (key === 'prev') {
+        if (!f) return '';
+        if (i === f.i && j === f.j) return 'cell-dep-skip';
+        if ((i === f.i && j === k) || (i === k && j === f.j)) return 'cell-dep-via';
+        return '';
+      }
+      // Z^k[i][j] sale de Z^(k−1)[i][j] (no pasar por k) o de Z^(k−1)[k][j] (pasar por k).
+      if (key === 'Zprev') {
+        if (!f) return '';
+        if (i === f.i && j === f.j) return 'cell-dep-skip';
+        if (i === k && j === f.j) return 'cell-dep-via';
+        return '';
+      }
+      if (f && i === f.i && j === f.j) return 'cell-selected';
+      if (key === 'Z' && focusPath.value && i === f.i && focusPath.value.slice(1).includes(j)) return 'cell-chain';
+      if (k >= 0 && s.phase !== 'end' && (i === k || j === k)) return 'cell-pivot';
+      return '';
+    }
+
+    // ── Fórmula e interpretación de la celda en foco ──
+    // Términos de la fórmula enmarcados con la misma clase que su celda en las matrices (\htmlClass, ver renderMath).
+    const box = cls => t => `\\htmlClass{${cls}}{${t}}`;
+    const PLAIN = { sel: t => t, skip: t => t, via: t => t };
+    const COLORED = { sel: box('cell-selected'), skip: box('cell-dep-skip'), via: box('cell-dep-via') };
+    function recFormula(k, K, I, J, col = PLAIN) {
+      return isFloyd.value
+        ? `${col.sel(`C^{${k}}_{${I},${J}}`)} = \\min\\left(${col.skip(`C^{${k - 1}}_{${I},${J}}`)},\\; ${col.via(`C^{${k - 1}}_{${I},${K}}`)} + ${col.via(`C^{${k - 1}}_{${K},${J}}`)}\\right)`
+        : `${col.sel(`C^{${k}}_{${I},${J}}`)} = ${col.skip(`C^{${k - 1}}_{${I},${J}}`)} \\lor \\left(${col.via(`C^{${k - 1}}_{${I},${K}}`)} \\land ${col.via(`C^{${k - 1}}_{${K},${J}}`)}\\right)`;
+    }
+    function initFormula() {
+      return isFloyd.value
+        ? 'C^0_{i,j} = \\begin{cases} 0 & \\text{si } i = j \\\\ w(i,j) & \\text{si hay arista } (i,j) \\\\ \\infty & \\text{si no} \\end{cases}'
+        : 'C^0_{i,j} = \\begin{cases} 1 & \\text{si } i = j \\text{ o hay arista } (i,j) \\\\ 0 & \\text{si no} \\end{cases}';
+    }
+    function interpret(s, i, j) {
+      const L = labels.value, n = L.length;
+      const k = s.phase === 'end' ? n : s.kIdx + 1;
+      const I = L[i], J = L[j], tI = texLabel(I), tJ = texLabel(J);
+      const via = k === 0 ? 'sin intermediarios (solo con aristas directas)'
+        : k === n ? 'con cualquier nodo como intermediario'
+        : `usando solo intermediarios en {${L.slice(0, k).join(', ')}}`;
+      const v = s.cur[i][j];
+      if (!isFloyd.value) {
+        return v
+          ? `<b>Sí</b>: ${texInline(`existe al menos un camino de ${I} a ${J} ${via}.`)}`
+          : `<b>No</b>: ${texInline(`no existe camino de ${I} a ${J} ${via}.`)}`;
+      }
+      if (v === Infinity) return texInline(`No hay camino de ${I} a ${J} ${via}: $C_{${tI},${tJ}} = \\infty$.`);
+      if (i === j) return texInline(v < 0
+        ? `$C_{${tI},${tI}} = ${v} < 0$: hay un ciclo de costo negativo que pasa por ${I}.`
+        : `Ir de ${I} a ${I} cuesta $0$: ya estoy en ${I}.`);
+      const lines = [`Para ir de ${I} a ${J} ${via}, el costo mínimo es $C_{${tI},${tJ}} = ${v}$.`];
+      const path = focusPath.value;
+      if (!path) return texInline(lines[0]);
+      for (let idx = path.length - 1; idx >= 1; idx--) {
+        const x = L[path[idx]], p = L[path[idx - 1]];
+        lines.push(p === I
+          ? `Para llegar de ${I} a ${x}, vengo directamente de ${I} ($Z_{${tI},${texLabel(x)}} = ${tI}$).`
+          : `Para llegar de ${I} a ${x}, paso por ${p} ($Z_{${tI},${texLabel(x)}} = ${texLabel(p)}$).`);
+      }
+      lines.push(`Luego, el camino es ${path.map(x => L[x]).join(', ')}.`);
+      return lines.map(texInline).join('<br>');
+    }
+    const explain = computed(() => {
+      const s = currentStep.value, f = focus.value;
+      if (!s) return {};
+      const L = labels.value, k = s.kIdx;
+      if (!f) {
+        return {
+          formula: k < 0 ? initFormula() : recFormula(k + 1, texLabel(L[k]), 'i', 'j'),
+          hint: 'Hacé clic en una celda de cualquier matriz para ver la fórmula con sus valores y cómo se interpreta.',
+        };
+      }
+      const { i, j } = f;
+      const I = texLabel(L[i]), J = texLabel(L[j]);
+      if (k < 0) {
+        const v = s.cur[i][j];
+        const why = !isFloyd.value ? '' : (i === j && v === 0) ? '' : (s.W[i][j] !== undefined ? `w(${I},${J}) = ` : '');
+        return { formula: initFormula(), subst: `C^0_{${I},${J}} = ${why}\\mathbf{${isFloyd.value ? texNum(v) : (v ? 1 : 0)}}`, interp: interpret(s, i, j) };
+      }
+      const K = texLabel(L[k]);
+      if (!isFilled(s, i, j)) {
+        return { formula: recFormula(k + 1, K, I, J, COLORED), hint: `Esta celda todavía no se calculó en k = ${k + 1}: seguí avanzando hasta llegar a ella.` };
+      }
+      const a = s.prev[i][j], b = s.prev[i][k], c = s.prev[k][j], r = s.cur[i][j];
+      const sup = k + 1;
+      const { sel, skip, via } = COLORED;
+      let subst;
+      if (isFloyd.value) {
+        // Z^k[i][j] sale de Z^(k−1)[k][j] si mejoró, si no se copia Z^(k−1)[i][j].
+        const z = s.Z[i][j];
+        const zSrc = r !== a ? via(`Z^{${k}}_{${K},${J}}`) : skip(`Z^{${k}}_{${I},${J}}`);
+        subst = `\\begin{gathered} ${sel(`C^{${sup}}_{${I},${J}}`)} = \\min(${skip(texNum(a))},\\; ${via(texNum(b))} + ${via(texNum(c))}) = \\min(${skip(texNum(a))},\\; ${via(texNum(b + c))}) = \\mathbf{${texNum(r)}}`
+          + ` \\\\[.4em] ${sel(`Z^{${sup}}_{${I},${J}}`)} = ${zSrc} = ${z == null ? '\\text{—}' : texLabel(L[z])} \\end{gathered}`;
+      } else {
+        subst = `${sel(`C^{${sup}}_{${I},${J}}`)} = ${skip(texBool(a))} \\lor (${via(texBool(b))} \\land ${via(texBool(c))}) = ${skip(texBool(a))} \\lor ${via(texBool(b && c))} = \\mathbf{${r ? 1 : 0}}`;
+      }
+      return {
+        formula: recFormula(sup, K, I, J, COLORED),
+        subst,
+        verdict: verdict(isFloyd.value, L, i, j, k, a, b, c, r, L[s.Z[i][j]]),
+        interp: interpret(s, i, j),
+      };
+    });
+
+    function selectCell(i, j) {
+      const s = selected.value;
+      selected.value = s && s.i === i && s.j === j ? null : { i, j };
+      refresh();
+    }
+    function clearSelection() { selected.value = null; refresh(); }
+
+    // ── Persistencia ──
+    function positionsMap() {
+      const m = {};
+      for (const n of nodes.value) m[n.label] = { x: n.x, y: n.y };
+      return m;
+    }
+    function currentState() {
+      return { graphText: graphTextDraft.value, positions: positionsMap(), directed: directed.value, algorithm: algorithm.value, granularity: granularity.value };
+    }
+    function applyState(data) {
+      graphTextDraft.value = data.graphText ?? graphTextDraft.value;
+      directed.value = data.directed ?? directed.value;
+      algorithm.value = data.algorithm ?? algorithm.value;
+      granularity.value = data.granularity ?? granularity.value;
+      const parsed = parseGraphText(graphTextDraft.value, directed.value);
+      const nodeLabels = parsed.nodeLabels || [];
+      const posMap = layoutNodes(nodeLabels, data.positions || {});
+      nodes.value = nodeLabels.map(label => ({ label, x: posMap[label].x, y: posMap[label].y }));
+      edges.value = parsed.edges || [];
+      labels.value = sortLabels(nodeLabels);
+      W = weightMatrix(labels.value, edges.value, directed.value);
+      selected.value = null;
+      regenerateSteps();
+    }
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
+    }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) { resetToDefault(); return; }
+        applyState(JSON.parse(raw));
+      } catch (e) { resetToDefault(); }
+    }
+
+    // ── Compartir por URL (#d=...) ──
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer el grafo de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo" (2 pasos) ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      newConfirm.value = false;
+      graphError.value = '';
+      applyState({ graphText: DEFAULT_GRAPH_TEXT, positions: DEFAULT_POSITIONS, directed: true, algorithm: 'floyd', granularity: 'cell' });
+      persist();
+      userAdjustedCamera.value = false;
+      nextTick(() => { resizeCanvasToDisplaySize(); fitToView(); });
+    }
+
+    // ── Editar grafo y configuración ──
+    function applyGraphText() {
+      const { error } = parseGraphText(graphTextDraft.value, directed.value);
+      graphError.value = error || '';
+      if (error) return;
+      applyState({ graphText: graphTextDraft.value, positions: positionsMap() });
+      persist();
+      userAdjustedCamera.value = false;
+      nextTick(() => { resizeCanvasToDisplaySize(); fitToView(); });
+    }
+    function toggleDirected() {
+      applyState({ ...currentState(), directed: !directed.value });
+      persist();
+    }
+    function onAlgorithmChange() {
+      regenerateSteps();
+      persist();
+    }
+    function setGranularity(g) {
+      granularity.value = g;
+      // Al pasar a "por k" se completa el k en curso.
+      if (g === 'k') goToStep(kEnds.value.find(x => x >= currentStepIndex.value) ?? kEnds.value.at(-1));
+      else refresh();
+      persist();
+    }
+
+    // ── Reproducción: un puntero sobre los pasos precalculados ──
+    function regenerateSteps() {
+      steps.value = computeSteps(labels.value, W, algorithm.value);
+      stopAutoplay();
+      goToStep(granularity.value === 'k' ? kEnds.value[0] ?? 0 : 0);
+    }
+    function goToStep(i) {
+      currentStepIndex.value = Math.max(0, Math.min(steps.value.length - 1, i));
+      refresh();
+    }
+    function jumpToK(k) {
+      const g = granularity.value;
+      if (k === 0) { goToStep(kEnds.value[0]); return; }
+      goToStep(steps.value.findIndex(s => s.kIdx === k - 1 && (g === 'k' ? s.summary : s.phase === 'kstart')));
+    }
+    function refresh() {
+      draw();
+      nextTick(() => { renderMath(); fitMatrices(); });
+    }
+    function renderMath() {
+      const e = explain.value;
+      const fBox = document.getElementById('formula-box');
+      const sBox = document.getElementById('subst-box');
+      const opts = { displayMode: true, throwOnError: false, trust: ctx => ctx.command === '\\htmlClass', strict: 'ignore' };
+      if (fBox) katex.render(e.formula || '', fBox, opts);
+      if (sBox) katex.render(e.subst || '', sBox, opts);
+    }
+    function stepForward() {
+      if (isAtEnd.value) { stopAutoplay(); return; }
+      const i = currentStepIndex.value;
+      goToStep(granularity.value === 'k' ? kEnds.value.find(x => x > i) : i + 1);
+    }
+    function stepBackward() {
+      const i = currentStepIndex.value;
+      goToStep(granularity.value === 'k' ? [...kEnds.value].reverse().find(x => x < i) ?? 0 : i - 1);
+    }
+    function restartAnimation() { stopAutoplay(); goToStep(granularity.value === 'k' ? kEnds.value[0] : 0); }
+    function stopAutoplay() {
+      isPlaying.value = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    }
+    function togglePlay() {
+      if (isPlaying.value) { stopAutoplay(); return; }
+      if (isAtEnd.value) restartAnimation();
+      isPlaying.value = true;
+      playTimer = setInterval(() => {
+        if (isAtEnd.value) { stopAutoplay(); return; }
+        stepForward();
+      }, speedMs.value);
+    }
+    function onKeyDown(e) {
+      if (e.key === 'Escape' && selected.value) clearSelection();
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); stepBackward(); }
+    }
+
+    // ── Cámara: pan / zoom (igual que recursion/call-tree.html) ──
+    function worldToScreen(x, y) {
+      return { x: x * camera.scale + camera.offsetX, y: y * camera.scale + camera.offsetY };
+    }
+    function screenToWorld(x, y) {
+      return { x: (x - camera.offsetX) / camera.scale, y: (y - camera.offsetY) / camera.scale };
+    }
+    function fitToView(manual) {
+      if (!nodes.value.length || !containerEl.value) return;
+      const xs = nodes.value.map(n => n.x), ys = nodes.value.map(n => n.y);
+      const minX = Math.min(...xs) - NODE_R, maxX = Math.max(...xs) + NODE_R;
+      const minY = Math.min(...ys) - NODE_R, maxY = Math.max(...ys) + NODE_R;
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const contentW = Math.max(maxX - minX, 1), contentH = Math.max(maxY - minY, 1);
+      camera.scale = Math.max(0.2, Math.min((w - PADDING * 2) / contentW, (h - PADDING * 2) / contentH, 1.6));
+      camera.offsetX = w / 2 - (minX + maxX) / 2 * camera.scale;
+      camera.offsetY = h / 2 - (minY + maxY) / 2 * camera.scale;
+      if (manual) userAdjustedCamera.value = false;
+      draw();
+    }
+
+    function hitTestNode(sx, sy) {
+      for (let i = nodes.value.length - 1; i >= 0; i--) {
+        const n = nodes.value[i];
+        const p = worldToScreen(n.x, n.y);
+        if (Math.hypot(sx - p.x, sy - p.y) <= NODE_R * camera.scale) return n;
+      }
+      return null;
+    }
+
+    // ── Mouse: arrastrar un nodo si el mousedown empieza sobre él, si no, pan de cámara ──
+    let isPanning = false, panStart = null;
+    let draggingNode = null;
+    function onCanvasMouseDown(e) {
+      const hit = hitTestNode(e.offsetX, e.offsetY);
+      if (hit) { draggingNode = hit; return; }
+      isPanning = true;
+      panStart = { x: e.offsetX, y: e.offsetY, offsetX: camera.offsetX, offsetY: camera.offsetY };
+      canvasEl.value.style.cursor = 'grabbing';
+    }
+    function onCanvasMouseMove(e) {
+      if (draggingNode) {
+        const w = screenToWorld(e.offsetX, e.offsetY);
+        draggingNode.x = w.x;
+        draggingNode.y = w.y;
+        draw();
+        return;
+      }
+      if (!isPanning) return;
+      camera.offsetX = panStart.offsetX + (e.offsetX - panStart.x);
+      camera.offsetY = panStart.offsetY + (e.offsetY - panStart.y);
+      userAdjustedCamera.value = true;
+      draw();
+    }
+    function onCanvasMouseUp() {
+      if (draggingNode) { draggingNode = null; persist(); }
+      isPanning = false;
+      if (canvasEl.value) canvasEl.value.style.cursor = 'grab';
+    }
+    function onCanvasWheel(e) {
+      const rect = canvasEl.value.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const before = screenToWorld(mx, my);
+      camera.scale = Math.min(3, Math.max(0.2, camera.scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+      const after = worldToScreen(before.x, before.y);
+      camera.offsetX += mx - after.x;
+      camera.offsetY += my - after.y;
+      userAdjustedCamera.value = true;
+      draw();
+    }
+
+    // ── Paleta de color por tema (Canvas no puede leer var(--bs-*)) ──
+    const PALETTES = {
+      light: {
+        bg: '#ffffff', nodeText: '#212529', edgeDefault: '#adb5bd', edgePath: '#d63384', weightText: '#495057',
+        nodeFill: { default: '#e9ecef', pivot: '#fff3cd', endpoint: '#d1e7dd' },
+        nodeStroke: { default: '#6c757d', pivot: '#ffc107', endpoint: '#198754' },
+      },
+      dark: {
+        bg: '#212529', nodeText: '#f8f9fa', edgeDefault: '#6c757d', edgePath: '#e685b5', weightText: '#dee2e6',
+        nodeFill: { default: '#343a40', pivot: '#664d03', endpoint: '#0f5132' },
+        nodeStroke: { default: '#adb5bd', pivot: '#ffda6a', endpoint: '#75b798' },
+      },
+    };
+    function palette() { return PALETTES[isDark.value ? 'dark' : 'light']; }
+
+    function nodeByLabel(label) { return nodes.value.find(n => n.label === label); }
+    function nodeState(label) {
+      const s = currentStep.value, f = focus.value, L = labels.value;
+      if (!s) return 'default';
+      if (f && (L[f.i] === label || L[f.j] === label)) return 'endpoint';
+      if (s.kIdx >= 0 && s.phase !== 'end' && L[s.kIdx] === label) return 'pivot';
+      return 'default';
+    }
+
+    function resizeCanvasToDisplaySize() {
+      const canvas = canvasEl.value, container = containerEl.value;
+      if (!canvas || !container) return;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = container.clientWidth * dpr;
+      canvas.height = container.clientHeight * dpr;
+      canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // Punto de control de la arista: el punto medio, desplazado en la perpendicular
+    // solo si en modo dirigido existe también la arista inversa (para que no se superpongan).
+    function edgeControlPoint(p1, p2, curved) {
+      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+      if (!curved) return { x: mx, y: my };
+      const dx = p2.x - p1.x, dy = p2.y - p1.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const bow = len * 0.2;
+      return { x: mx - dy / len * bow, y: my + dx / len * bow };
+    }
+
+    function draw() {
+      const canvas = canvasEl.value;
+      if (!canvas || !containerEl.value) return;
+      const ctx = canvas.getContext('2d');
+      const w = containerEl.value.clientWidth, h = containerEl.value.clientHeight;
+      const pal = palette();
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = pal.bg;
+      ctx.fillRect(0, 0, w, h);
+
+      const r = NODE_R * camera.scale;
+      const edgeKeys = new Set(edges.value.map(e => e.key));
+      const pathKeys = new Set();
+      const path = focusPath.value;
+      if (path) for (let idx = 1; idx < path.length; idx++) {
+        pathKeys.add(edgeKey(labels.value[path[idx - 1]], labels.value[path[idx]], directed.value));
+      }
+
+      for (const e of edges.value) {
+        const from = nodeByLabel(e.a), to = nodeByLabel(e.b);
+        if (!from || !to) continue;
+        const p1 = worldToScreen(from.x, from.y), p2 = worldToScreen(to.x, to.y);
+        const curved = directed.value && edgeKeys.has(edgeKey(e.b, e.a, true));
+        const c = edgeControlPoint(p1, p2, curved);
+        const onPath = pathKeys.has(e.key);
+        const color = onPath ? pal.edgePath : pal.edgeDefault;
+
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = onPath ? 4 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.quadraticCurveTo(c.x, c.y, p2.x, p2.y);
+        ctx.stroke();
+
+        if (directed.value) {
+          // Flecha en el borde del nodo destino, alineada con la tangente final de la curva.
+          const tx = p2.x - c.x, ty = p2.y - c.y;
+          const tl = Math.hypot(tx, ty) || 1;
+          const ux = tx / tl, uy = ty / tl;
+          const tipX = p2.x - ux * r, tipY = p2.y - uy * r;
+          const size = Math.max(7, 10 * camera.scale);
+          ctx.beginPath();
+          ctx.moveTo(tipX, tipY);
+          ctx.lineTo(tipX - ux * size - uy * size * 0.5, tipY - uy * size + ux * size * 0.5);
+          ctx.lineTo(tipX - ux * size + uy * size * 0.5, tipY - uy * size - ux * size * 0.5);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Peso en el punto medio de la curva (t = 0.5); Warshall no usa pesos.
+        if (isFloyd.value) {
+          const lx = 0.25 * p1.x + 0.5 * c.x + 0.25 * p2.x, ly = 0.25 * p1.y + 0.5 * c.y + 0.25 * p2.y;
+          ctx.font = `bold ${Math.max(10, 13 * camera.scale)}px system-ui, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const tw = ctx.measureText(String(e.w)).width + 6;
+          const th = Math.max(14, 17 * camera.scale);
+          ctx.fillStyle = pal.bg;
+          ctx.fillRect(lx - tw / 2, ly - th / 2, tw, th);
+          ctx.fillStyle = onPath ? color : pal.weightText;
+          ctx.fillText(String(e.w), lx, ly);
+        }
+        ctx.restore();
+      }
+
+      for (const n of nodes.value) {
+        const p = worldToScreen(n.x, n.y);
+        const state = nodeState(n.label);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = pal.nodeFill[state];
+        ctx.fill();
+        ctx.lineWidth = state === 'default' ? 1.5 : 3;
+        ctx.strokeStyle = pal.nodeStroke[state];
+        ctx.stroke();
+        ctx.fillStyle = pal.nodeText;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `${Math.max(10, 13 * camera.scale)}px system-ui, sans-serif`;
+        ctx.fillText(n.label, p.x, p.y);
+      }
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+      draw();
+    }
+
+    // ── Ciclo de vida ──
+    // Todas las matrices en una fila, con la letra achicada hasta MIN_SCALE para que entren al ancho;
+    // si ni así entran, en 2×2 (C arriba, Z abajo), también ajustadas al ancho.
+    const MIN_SCALE = 0.65;
+    function fitMatrices() {
+      const el = gridEl.value, col = leftColEl.value;
+      if (!el || !col) return;
+      const avail = col.clientWidth - 24;
+      const fit = cols => {
+        el.style.setProperty('--mcols', cols);
+        el.style.setProperty('--mscale', 1);
+        return Math.min(1, avail / el.offsetWidth);
+      };
+      const count = el.children.length;
+      let scale = fit(count);
+      if (scale < MIN_SCALE && count > 2) scale = fit(2);
+      // Bordes y paddings en px no escalan: se corrige un par de veces si todavía se pasa.
+      for (let t = 0; t < 3; t++) {
+        el.style.setProperty('--mscale', scale);
+        if (el.offsetWidth <= avail) break;
+        scale *= avail / el.offsetWidth * 0.99;
+      }
+    }
+    function handleContainerResize() {
+      fitMatrices();
+      resizeCanvasToDisplaySize();
+      if (!userAdjustedCamera.value) fitToView();
+      draw();
+    }
+    // ResizeObserver y no window.resize: el canvas también cambia de tamaño cuando las matrices crecen.
+    const resizeObserver = new ResizeObserver(handleContainerResize);
+    onMounted(() => {
+      loadInitialState();
+      resizeCanvasToDisplaySize();
+      fitToView();
+      draw();
+      resizeObserver.observe(containerEl.value);
+      window.addEventListener('keydown', onKeyDown);
+    });
+    onBeforeUnmount(() => {
+      resizeObserver.disconnect();
+      window.removeEventListener('keydown', onKeyDown);
+      stopAutoplay();
+    });
+
+    return {
+      complexity, tex, texInline, pseudocode, isFloyd,
+      nodes, labels, directed, toggleDirected, algorithm, onAlgorithmChange, granularity, setGranularity,
+      currentStep, activeLines, isAtStart, isAtEnd, stepBadge, progressText, kButtons, activeK, jumpToK,
+      matrices, cellText, cellClass, isImproved, oldText,
+      focus, selected, selectCell, clearSelection, explain,
+      isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,
+      showEditor, graphTextDraft, graphError, applyGraphText,
+      newConfirm, handleNewClick, shareCopied, shareCurrentState,
+      isDark, toggleTheme, fitToView,
+      canvasEl, containerEl, leftColEl, gridEl, onCanvasMouseDown, onCanvasMouseMove, onCanvasMouseUp, onCanvasWheel,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

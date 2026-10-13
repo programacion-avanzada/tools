@@ -73,6 +73,7 @@ El Teorema Maestro analiza recurrencias por división T(n) = a·T(n/b) + O(n^c):
 | [`grafos/prim.html`](grafos/prim.html) | Prim — Árbol de Expansión Mínima (cola de prioridad de aristas) | O(E·log E) |
 | [`grafos/kruskal.html`](grafos/kruskal.html) | Kruskal — Árbol de Expansión Mínima (cola de aristas + Union-Find) | O(E·log E) |
 | [`grafos/coloreo.html`](grafos/coloreo.html) | Coloreo de Grafos — Secuencial greedy (orden natural, Welsh-Powell, Matula), por vértice o por color | O(V·log V + E) / O(V·log V + χ·(V+E)) |
+| [`grafos/floyd-warshall.html`](grafos/floyd-warshall.html) | Floyd (costos mínimos + predecesores) y Warshall (clausura transitiva) entre todos los pares | O(V³) |
 
 DFS, BFS, Dijkstra y Prim permiten:
 - Cargar cualquier grafo no dirigido escribiendo su lista de aristas (`A-B`, una por línea o separadas por coma; un token sin guion declara un nodo aislado); el orden de las aristas define el orden de exploración de los vecinos.
@@ -99,6 +100,12 @@ Kruskal además:
 - Cola de prioridad con todas las aristas a la vista: las ya extraídas quedan marcadas como aceptadas o tachadas (descartadas).
 - Union-Find ingenuo (`union(u, v)`: `padre[find(v)] ← find(u)`) mostrado como vector `padre[]` y como bosque de padres, con el camino de cada `find` y el `padre[]` que cambia en cada `union` resaltados. En el grafo, los vértices de un mismo subárbol comparten color.
 - Tabla de seguimiento (Iteración | Arista aᵢ | w(aᵢ) | find(u) / find(v) | Subárboles | W(MST)), con las aristas descartadas como filas tachadas. Si el grafo no es conexo, devuelve un bosque.
+
+Floyd · Warshall muestra la programación dinámica sobre matrices:
+- Mismo formato de grafo con pesos (`A-B:3`, se admiten negativos), dirigido o no; un selector cambia entre Floyd (`min`/`+`, costos y matriz de predecesores Z) y Warshall (`∨`/`∧`, ¿existe camino?), con su pseudocódigo.
+- Siempre a la vista C^(k−1), C^k y Z^k: fila y columna k sombreadas, los operandos de la celda en foco marcados en C^(k−1) y las celdas que mejoran con el valor viejo tachado.
+- Dos granularidades: "Por k" (cada paso completa una iteración y resume qué celdas mejoraron) o "Por celda" (C^k se llena de a una, con la fórmula instanciada); botones para saltar a cualquier k.
+- Clic en cualquier celda: fórmula general y con valores sustituidos (KaTeX), qué rama se tomó y su lectura ("para llegar de 2 a 1, paso por 3; para llegar de 2 a 3, vengo directamente de 2; el camino es 2, 3, 1"), con la cadena de Z y el camino resaltados en el grafo. Avisa si hay un ciclo negativo.
 
 El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
 - Mismo formato de texto (`A-B` o `A-B:costo`, el costo es texto libre y opcional), dirigido o no dirigido, nodos arrastrables con las aristas siguiéndolos en vivo.
