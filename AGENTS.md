@@ -31,7 +31,7 @@ Las reglas de stack/idioma, **Modo claro/oscuro**, **Persistencia/"Nuevo"/Compar
     <!-- Columna izquierda: col-12 col-md-4 col-xl-3 -->
       - card "Parámetros"/"Cadenas de entrada" (inputs de datos)
       - (opcional) card de costos/configuración extra
-      - botón "▶ Resolver" (btn-dark w-100)
+      - botón "▶ Aplicar" (btn-dark w-100)
       - card "Leyenda" (list-group, un badge de color por cada tipo de dependencia)
       - firma (ver Footer)
     <!-- Columna derecha: col-12 col-md-8 col-xl-9 -->
@@ -56,9 +56,9 @@ Las reglas de stack/idioma, **Modo claro/oscuro**, **Persistencia/"Nuevo"/Compar
 - **Celdas de cabecera/índice** (thead y columna de `<th>` de etiquetas de fila): clase `.dp-header-cell` (`background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important;`) — nunca `table-secondary text-dark` (rompe en modo oscuro: hereda `color: white` del `thead.table-dark` ancestro). Etiquetas chicas dentro (`i=`, `j=`): `text-muted`.
 - Clic en celda → `selectCell(i, j)` guarda selección y llama `nextTick(() => renderExplanation(i, j))`, que llena `#formula-box` (fórmula general con índices concretos) y `#subst-box` (misma fórmula con valores sustituidos, terminando en el resultado en negrita).
 - Un computed `verdictBadge`/`verdictIcon`/`verdictText` resume en una frase + ícono + color qué rama de la recurrencia se tomó.
-- La solución se resuelve al cargar (`nextTick(solve)`) y también con el botón "Resolver".
+- La solución se resuelve al cargar (`nextTick(solve)`) y también con el botón "▶ Aplicar".
 
-**Variante sin tabla clickeable (`recursion/teorema-maestro.html`)**: mismo layout de 2 columnas y mismas convenciones (watch + persist, KaTeX manual en `renderMath()` tras `nextTick`, banner + badge de veredicto), pero la columna derecha es un análisis que se recalcula en vivo al cambiar los inputs (sin botón "Resolver"): desarrollo en KaTeX, tabla por nivel y un gráfico de barras en HTML/CSS (sin librería). El color de caso se aplica con una clase `.case-*` que define `--case-bg`/`--case-strong` a partir de variables `--bs-*`.
+**Variante sin tabla clickeable (`recursion/teorema-maestro.html`)**: mismo layout de 2 columnas y mismas convenciones (watch + persist, KaTeX manual en `renderMath()` tras `nextTick`, banner + badge de veredicto), pero la columna derecha es un análisis que se recalcula en vivo al cambiar los inputs (sin botón "▶ Aplicar"): desarrollo en KaTeX, tabla por nivel y un gráfico de barras en HTML/CSS (sin librería). El color de caso se aplica con una clase `.case-*` que define `--case-bg`/`--case-strong` a partir de variables `--bs-*`.
 
 **Variante con gráfico (`complejidad/comparador.html`)**: mismo layout de 2 columnas, con un gráfico de líneas en `<svg>` dentro del template (sin librería), dibujado en píxeles al ancho real de la card (medido con `ResizeObserver`). **No usar `viewBox` en los SVG del template**: como el template vive dentro del HTML, el navegador pasa los atributos a minúscula y `viewbox` no lo entiende el SVG. Colores de series: paleta categórica validada con el skill `dataviz` para los fondos de Bootstrap (claro y oscuro), asignada por posición de la función en la lista (fija, no por orden de marcado); desde la 9ª se repite el tono con otro trazo. Los valores se manejan como log10 para no desbordar. Las funciones propias se evalúan con un parser de descenso recursivo, **nunca con `eval`**: el estado viaja en la URL de Compartir.
 
