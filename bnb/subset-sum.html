@@ -94,9 +94,9 @@
       </select>
       <div class="btn-group btn-group-sm">
         <button class="btn btn-outline-light" @click="restartAnimation" title="Reiniciar animación (mismos datos)">⏮</button>
-        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior (←)">⏪</button>
         <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
-        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente">⏩</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente (→)">⏩</button>
       </div>
       <input type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
         v-model.number="speedMs" title="Velocidad de reproducción" />
@@ -647,7 +647,11 @@ createApp({
       pinnedId.value = el ? Number(el.dataset.nodeId) : null;
     }
     function onKeydown(e) {
-      if (e.key === 'Escape' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) pinnedId.value = null;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'Escape') pinnedId.value = null;
+      // ← → avanzan y retroceden.
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); stepBackward(); }
     }
     function onWheel(e) {
       if (viewMode.value === 'list' && !e.ctrlKey) { // en la lista la rueda hace scroll; Ctrl+rueda, zoom

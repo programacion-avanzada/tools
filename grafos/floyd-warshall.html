@@ -78,9 +78,9 @@
       </button>
       <div class="btn-group btn-group-sm" v-if="nodes.length">
         <button class="btn btn-outline-light" @click="restartAnimation" title="Volver al principio">⏮</button>
-        <button class="btn btn-outline-light" @click="stepBackward" :disabled="isAtStart" title="Paso anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="isAtStart" title="Paso anterior (←)">⏪</button>
         <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
-        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente">⏩</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente (→)">⏩</button>
       </div>
       <input v-if="nodes.length" type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
         v-model.number="speedMs" title="Velocidad de reproducción" />

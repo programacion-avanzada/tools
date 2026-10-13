@@ -67,9 +67,9 @@
       <span class="badge bg-secondary">Union-Find · N = {{ names.length }}</span>
       <div class="btn-group btn-group-sm">
         <button class="btn btn-outline-light" @click="restartAnimation" title="Volver al estado inicial">⏮</button>
-        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Operación anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Operación anterior (←)">⏪</button>
         <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
-        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Operación siguiente">⏩</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Operación siguiente (→)">⏩</button>
       </div>
       <input type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
         v-model.number="speedMs" title="Velocidad de reproducción" />
@@ -714,6 +714,14 @@ createApp({
     }
     function stepForward() { if (!isAtEnd.value) goToStep(currentStepIndex.value + 1); else stopAutoplay(); }
     function stepBackward() { goToStep(currentStepIndex.value - 1); }
+    // ← → avanzan y retroceden, salvo mientras se escribe en un campo.
+    function onStepKey(e) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); stepBackward(); }
+    }
+    window.addEventListener('keydown', onStepKey);
+    onBeforeUnmount(() => window.removeEventListener('keydown', onStepKey));
     function restartAnimation() { stopAutoplay(); goToStep(0); }
     function stopAutoplay() {
       isPlaying.value = false;

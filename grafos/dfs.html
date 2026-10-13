@@ -56,9 +56,9 @@
       </select>
       <div class="btn-group btn-group-sm" v-if="nodes.length">
         <button class="btn btn-outline-light" @click="restartAnimation" title="Reiniciar animación (mismo grafo)">⏮</button>
-        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior (←)">⏪</button>
         <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
-        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente">⏩</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente (→)">⏩</button>
       </div>
       <input v-if="nodes.length" type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
         v-model.number="speedMs" title="Velocidad de reproducción" />
@@ -464,6 +464,14 @@ createApp({
     }
     function stepForward() { if (!isAtEnd.value) goToStep(currentStepIndex.value + 1); else stopAutoplay(); }
     function stepBackward() { goToStep(currentStepIndex.value - 1); }
+    // ← → avanzan y retroceden, salvo mientras se escribe en un campo.
+    function onStepKey(e) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); stepBackward(); }
+    }
+    window.addEventListener('keydown', onStepKey);
+    onBeforeUnmount(() => window.removeEventListener('keydown', onStepKey));
     function restartAnimation() { stopAutoplay(); goToStep(0); }
     function stopAutoplay() {
       isPlaying.value = false;

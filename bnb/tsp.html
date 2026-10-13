@@ -116,9 +116,9 @@
         title="Arrancar con el tour greedy (vecino más cercano desde v1) como mejor inicial">🧭 Greedy {{ greedy ? 'sí' : 'no' }}</button>
       <div class="btn-group btn-group-sm">
         <button class="btn btn-outline-light" @click="restartAnimation" title="Reiniciar animación (mismos datos)">⏮</button>
-        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior">⏪</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior (←)">⏪</button>
         <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
-        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente">⏩</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente (→)">⏩</button>
       </div>
       <input type="range" class="form-range" style="width:80px" min="150" max="2000" step="50"
         v-model.number="speedMs" title="Velocidad de reproducción" />
@@ -901,7 +901,11 @@ createApp({
       userAdjustedCamera = true;
     }
     function onKeydown(e) {
-      if (e.key === 'Escape' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) pinnedId.value = null;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'Escape') pinnedId.value = null;
+      // ← → avanzan y retroceden.
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); stepBackward(); }
     }
 
     // Clic en el número de paso de la tabla: selecciona ese nodo y, si está fuera de pantalla, lo centra.
