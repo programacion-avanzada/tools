@@ -33,12 +33,12 @@ Los tienen las 20 herramientas (en `recursion/call-tree.html` con otros nombres:
 | Veredicto del paso | Badge con ícono + color + frase en lenguaje llano de qué pasó y por qué. | `grafos/dijkstra.html` (`badge`) |
 | Fórmula + sustitución | KaTeX manual: fórmula general con índices concretos y la misma con valores, terminando en el resultado en negrita. | `dp/lcs.html` (`#formula-box` / `#subst-box`) |
 | Fórmula coloreada | Cada término de la fórmula lleva el mismo color que su celda (`\htmlClass` con la clase `.cell-*`, `trust` solo para ese comando y `strict: 'ignore'`), así la fórmula y la tabla se leen juntas. | `grafos/floyd-warshall.html` (`COLORED`) |
-| Clic → foco fijado | Un clic en una celda o un nodo lo fija y la explicación pasa a ser sobre él; sin nada fijado, el foco sigue al paso actual. Se suelta con Esc, con ✕ o con otro clic. | `grafos/floyd-warshall.html` (`focus`/`selected`); `bnb/tsp.html` (`pinnedId`) |
+| Clic → foco fijado | Un clic en una celda o un nodo lo fija y la explicación pasa a ser sobre él; sin nada fijado, el foco sigue al paso actual. Se suelta con Esc, con ✕ o con otro clic. En los grafos en canvas, el clic se distingue del arrastre (menos de 4 px), el nodo lleva un anillo violeta, su columna se marca en las tablas (`.th-pinned`) y una card "📌 Nodo" dice su estado en el paso (`pinnedInfo`). | `grafos/floyd-warshall.html` (`focus`/`selected`); `bnb/tsp.html` (`pinnedId`); `grafos/dijkstra.html` (`pinned`) |
 | Lectura del resultado | Al clickear, además de la fórmula, una interpretación en palabras ("para llegar de 2 a 1, paso por 3…"), con lo mismo resaltado en la tabla y en el grafo. | `grafos/floyd-warshall.html` (`interpret`) |
 | Leyenda | Un ítem por color, con el mismo badge que en las tablas y el grafo. | todas las de algoritmos |
 | Seguimiento / historial | Tabla que crece con los pasos (iteración, estructuras, valores) o historial de operaciones. | `grafos/dijkstra.html`; `estructuras/heap.html` |
 | Complejidad desplegable | `<details>` "⏱️ Complejidad" con línea, veces y costo en KaTeX, y una nota en prosa. | AGENTS.md, "Complejidad desplegable" |
-| Auto-chequeo | `console.assert` sobre el ejemplo de la cátedra al cargar (resultado final y algún paso clave), como única prueba. | `grafos/floyd-warshall.html` (`selfCheck`) |
+| Auto-chequeo | `console.assert` sobre el ejemplo por defecto al cargar (resultado final y algún paso clave), con valores calculados a mano o conocidos (no copiados de lo que da la herramienta), como única prueba. Si la tabla o el algoritmo vive dentro de `setup()`, sacarlo a una función suelta para poder chequearlo. | `grafos/floyd-warshall.html` (`selfCheck`); `dp/knapsack.html` (`knapsackTable`) |
 
 ## 3. Datos y vista
 
@@ -61,26 +61,26 @@ Features de las secciones 2 y 3 que varían entre herramientas (las de la secci�
 
 | Herramienta | Paso a paso | Autoplay | ← → | Pseudocódigo | Complejidad | Fórmula KaTeX | Clic → foco | Seguimiento | Esc | Auto-chequeo |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `dp/knapsack.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | · |
-| `dp/lcs.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | · |
-| `dp/edit-distance.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | · |
+| `dp/knapsack.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ |
+| `dp/lcs.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ |
+| `dp/edit-distance.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ |
 | `recursion/call-tree.html` | · | · | · | · | · | ✅ | · | · | ✅ | · |
 | `recursion/teorema-maestro.html` | · | · | · | · | · | ✅ | · | · | · | · |
 | `complejidad/comparador.html` | · | · | · | · | · | ✅ | · | · | · | · |
 | `complejidad/big-o.html` | · | · | · | · | · | ✅ | · | · | · | · |
 | `grafos/editor.html` | · | · | · | · | · | · | · | · | · | · |
-| `grafos/dfs.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | · | · | · | · |
-| `grafos/bfs.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | · | · | · | · |
-| `grafos/dijkstra.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | · | · |
-| `grafos/prim.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | · | · |
-| `grafos/kruskal.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | · | · |
-| `grafos/coloreo.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | · | · |
+| `grafos/dfs.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | · | ✅ | ✅ |
+| `grafos/bfs.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | · | ✅ | ✅ |
+| `grafos/dijkstra.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `grafos/prim.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | ✅ |
+| `grafos/kruskal.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | ✅ |
+| `grafos/coloreo.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | ✅ |
 | `grafos/floyd-warshall.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `estructuras/heap.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | · | · |
-| `estructuras/union-find.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | · | · |
-| `bnb/subset-sum.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | · |
-| `bnb/knapsack.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | · |
-| `bnb/tsp.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | · |
+| `estructuras/heap.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | · | ✅ |
+| `estructuras/union-find.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | · | ✅ |
+| `bnb/subset-sum.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | ✅ |
+| `bnb/knapsack.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | ✅ |
+| `bnb/tsp.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | ✅ |
 
 Granularidad y fórmula coloreada están en `grafos/floyd-warshall.html` y en las tres de PD ("Por fila" / "Por celda"); las tablas ajustadas al ancho, solo en Floyd · Warshall.
 
@@ -88,6 +88,4 @@ Granularidad y fórmula coloreada están en `grafos/floyd-warshall.html` y en la
 
 Lo que falta donde sí aplicaría, de más a menos impacto en clase:
 
-1. **Auto-chequeo**: solo Floyd · Warshall. Vale la pena en las que tienen un ejemplo de la cátedra con resultado conocido.
-2. **Pseudocódigo de PD**: los de Mochila, LCS y Distancia de edición los escribió la herramienta, no son de la cátedra; reemplazarlos por los de las diapositivas cuando estén (cambiar `PSEUDOCODE` y `LINES`).
-3. **Clic → foco en grafos** (DFS, BFS, Dijkstra, Prim, Kruskal, Coloreo): a evaluar. Un clic en un nodo podría fijar su fila en las tablas y explicar su estado, como en B&B.
+1. **Pseudocódigo de PD**: los de Mochila, LCS y Distancia de edición los escribió la herramienta, no son de la cátedra; reemplazarlos por los de las diapositivas cuando estén (cambiar `PSEUDOCODE` y `LINES`).

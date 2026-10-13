@@ -41,6 +41,7 @@
     }
     summary.card-header { cursor: pointer; }
     .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .th-pinned { box-shadow: inset 0 -3px 0 var(--bs-purple); color: var(--bs-purple) !important; }
   </style>
 </head>
 <body>
@@ -145,6 +146,17 @@
               <p class="small text-muted mt-3 mb-0">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
             </div>
           </div>
+        </div>
+
+        <div class="card mb-3" v-if="currentStep">
+          <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+            <span>📌 {{ pinnedInfo ? `Nodo ${pinned}` : 'Nodo fijado' }}</span>
+            <button class="btn btn-sm btn-outline-secondary py-0" v-if="pinnedInfo" @click="togglePin(pinned)" title="Soltar (Esc)">✕</button>
+          </div>
+          <ul class="list-group list-group-flush small" v-if="pinnedInfo">
+            <li class="list-group-item" v-for="(line, idx) in pinnedInfo" :key="idx">{{ line }}</li>
+          </ul>
+          <div class="card-body small text-muted py-2" v-else>Hacé clic en un nodo del grafo para seguir su estado paso a paso.</div>
         </div>
 
         <details class="card mb-3">
@@ -476,6 +488,7 @@ createApp({
     // ← → avanzan y retroceden, salvo mientras se escribe en un campo.
     function onStepKey(e) {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'Escape' && pinned.value) togglePin(pinned.value);
       if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); stepBackward(); }
     }
@@ -529,15 +542,19 @@ createApp({
     // ── Mouse: arrastrar un nodo si el mousedown empieza sobre él, si no, pan de cámara ──
     let isPanning = false, panStart = null;
     let draggingNode = null;
+    // Un clic sin arrastrar (menos de 4 px) fija o suelta el nodo; si se mueve, es un arrastre.
+    let dragStart = null, dragMoved = false;
     function onCanvasMouseDown(e) {
       const hit = hitTestNode(e.offsetX, e.offsetY);
-      if (hit) { draggingNode = hit; return; }
+      if (hit) { draggingNode = hit; dragStart = { x: e.offsetX, y: e.offsetY }; dragMoved = false; return; }
       isPanning = true;
       panStart = { x: e.offsetX, y: e.offsetY, offsetX: camera.offsetX, offsetY: camera.offsetY };
       canvasEl.value.style.cursor = 'grabbing';
     }
     function onCanvasMouseMove(e) {
       if (draggingNode) {
+        if (Math.hypot(e.offsetX - dragStart.x, e.offsetY - dragStart.y) > 3) dragMoved = true;
+        if (!dragMoved) return;
         const w = screenToWorld(e.offsetX, e.offsetY);
         draggingNode.x = w.x;
         draggingNode.y = w.y;
@@ -550,8 +567,12 @@ createApp({
       userAdjustedCamera.value = true;
       draw();
     }
-    function onCanvasMouseUp() {
-      if (draggingNode) { draggingNode = null; persist(); }
+    function onCanvasMouseUp(e) {
+      if (draggingNode) {
+        if (dragMoved) persist();
+        else if (e.type === 'mouseup') togglePin(draggingNode.label);
+        draggingNode = null;
+      }
       isPanning = false;
       if (canvasEl.value) canvasEl.value.style.cursor = 'grab';
     }
@@ -600,7 +621,44 @@ createApp({
       canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
-    function draw() {
+    const pinnedInfo = computed(() => {
+      const s = currentStep.value, x = pinned.value;
+      if (!s || !x || !adjacencyMap.has(x)) return null;
+      const k = s.processed.indexOf(x);
+      const tree = Object.keys(s.edgeCls).filter(key => s.edgeCls[key] === 'tree' && key.split('|').includes(x)).map(key => key.replace('|', '–'));
+      return [
+        s.current === x ? 'Es el nodo que se está procesando en este paso.'
+          : k >= 0 ? `Ya se procesó: fue el ${k + 1}.º en salir de la pila.`
+          : s.stack.includes(x) ? 'Está en la pila: ya se visitó, falta procesarlo.'
+          : 'Todavía no se descubrió.',
+        `Adyacentes, en el orden en que se examinan: ${adjacencyMap.get(x).join(', ') || 'ninguno'}.`,
+        `Aristas del árbol que lo tocan: ${tree.join(', ') || 'ninguna todavía'}.`,
+      ];
+    });
+
+    // ── Nodo fijado con un clic: anillo violeta en el grafo, su columna en las tablas y una card con su estado ──
+    const pinned = ref(null);
+    function togglePin(label) {
+      pinned.value = pinned.value === label ? null : label;
+      draw();
+    }
+    function drawPin() {
+      const n = pinned.value && nodeByLabel(pinned.value);
+      if (!n || !canvasEl.value) return;
+      const ctx = canvasEl.value.getContext('2d');
+      const p = worldToScreen(n.x, n.y);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, NODE_R * camera.scale + 6, 0, Math.PI * 2);
+      ctx.strokeStyle = isDark.value ? '#a98eda' : '#6f42c1';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([5, 3]);
+      ctx.stroke();
+      ctx.restore();
+    }
+    function draw() { drawGraph(); drawPin(); }
+
+    function drawGraph() {
       const canvas = canvasEl.value;
       if (!canvas || !containerEl.value) return;
       const ctx = canvas.getContext('2d');
@@ -689,6 +747,7 @@ createApp({
       showEditor, graphTextDraft, applyGraphText,
       newConfirm, handleNewClick, shareCopied, shareCurrentState,
       isDark, toggleTheme, fitToView,
+      pinned, pinnedInfo, togglePin,
       canvasEl, containerEl, onCanvasMouseDown, onCanvasMouseMove, onCanvasMouseUp, onCanvasWheel,
     };
   }

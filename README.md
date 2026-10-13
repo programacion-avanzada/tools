@@ -81,6 +81,7 @@ DFS, BFS, Dijkstra y Prim permiten:
 - Ver en todo momento la estructura de datos del algoritmo (pila en DFS, cola + array de distancias en BFS), el pseudocódigo con la línea actual resaltada, y una explicación en lenguaje llano de cada paso.
 - Distinguir por color los nodos no visitados / pendientes / actual / ya procesados, y las aristas de árbol (llevaron a un nodo nuevo) de las descartadas (llevan a uno ya visitado) — clasificación que queda fija una vez que la arista se examina. BFS además muestra la distancia (en saltos) desde el nodo inicial junto a cada nodo descubierto.
 - Arrastrar los nodos para destrabar cruces de aristas.
+- Hacer clic en un nodo para fijarlo: queda marcado en el grafo y en las tablas, y una card "📌 Nodo" cuenta su estado en cada paso (distancia, predecesor y camino, si está en el MST o en la cola, su subárbol en Kruskal, su color y los de sus vecinos). Esc lo suelta. Lo mismo en Prim, Kruskal y Coloreo.
 
 Dijkstra además:
 - Acepta aristas con peso (`A-B:3`; sin peso vale 1, los pesos negativos se rechazan) y se puede alternar entre grafo dirigido y no dirigido.
