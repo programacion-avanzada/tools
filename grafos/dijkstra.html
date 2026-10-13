@@ -324,7 +324,7 @@ function sortLabels(labels) {
 function fmt(x) { return x === Infinity ? '∞' : x; }
 function fmtSet(labels) { return labels.length ? `{${labels.join(', ')}}` : '∅'; }
 // Etiqueta de nodo lista para KaTeX (se sacan los caracteres especiales de LaTeX).
-function tex(label) { return `\\text{${String(label).replace(/[\\{}_^$&%#~]/g, '')}}`; }
+function texLabel(label) { return `\\text{${String(label).replace(/[\\{}_^$&%#~]/g, '')}}`; }
 function texNum(x) { return x === Infinity ? '\\infty' : x; }
 
 // ── Parseo del grafo: "A-B:3" declara una arista de peso 3 (sin ":peso" vale 1),
@@ -438,9 +438,9 @@ function computeSteps(adjacency, nodeLabels, startId) {
       highlightEdge = { from: current, to };
       const cand = dist[current] + cost;
       const best = Math.min(dist[to], cand);
-      formula = `D[${tex(to)}] = \\min\\begin{cases}`
-        + ` D[${tex(to)}] = ${texNum(dist[to])} \\\\`
-        + ` D[${tex(current)}] + C(${tex(current)}, ${tex(to)}) = ${dist[current]} + ${cost} = ${cand}`
+      formula = `D[${texLabel(to)}] = \\min\\begin{cases}`
+        + ` D[${texLabel(to)}] = ${texNum(dist[to])} \\\\`
+        + ` D[${texLabel(current)}] + C(${texLabel(current)}, ${texLabel(to)}) = ${dist[current]} + ${cost} = ${cand}`
         + ` \\end{cases} = \\mathbf{${best}}`;
       if (dist[to] > cand) {
         snapshot([11, 12], { icon: '👀', text: `${cand} < ${fmt(dist[to])}: pasando por "${current}" se llega más barato a "${to}".`, cls: 'bg-primary' });
