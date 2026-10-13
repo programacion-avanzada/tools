@@ -556,7 +556,7 @@ const COMPLEXITY = {
     ["SI conjuntos.find(u) ≠ conjuntos.find(v)", "2 \\text{ por vuelta}, \\le 2E", "O(E \\cdot h)"],
     ["conjuntos.union(u, v); MST.agregar; pesoTotal", "V - 1", "O(V \\cdot h)"],
   ],
-  note: "$h$ es la altura del bosque del Union-Find. Con weighted quick-union $h \\le \\log_2 V$, los find suman $O(E \\log V)$ y domina ordenar las aristas: $O(E \\log E)$, lo que dice el badge. El Union-Find de esta herramienta es el ingenuo (padre[], sin peso ni compresión, para que se vea el bosque), donde $h$ puede llegar a $V - 1$: con él, el peor caso es $O(E \\cdot V)$. Las variantes se comparan en grafos/union-find.html.",
+  note: "$h$ es la altura del bosque del Union-Find. Con weighted quick-union $h \\le \\log_2 V$, los find suman $O(E \\log V)$ y domina ordenar las aristas: $O(E \\log E)$, lo que dice el badge. El Union-Find de esta herramienta es el ingenuo (padre[], sin peso ni compresión, para que se vea el bosque), donde $h$ puede llegar a $V - 1$: con él, el peor caso es $O(E \\cdot V)$. Las variantes se comparan en estructuras/union-find.html.",
 };
 
 createApp({

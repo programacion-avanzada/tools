@@ -73,7 +73,6 @@ El Teorema Maestro analiza recurrencias por división T(n) = a·T(n/b) + O(n^c):
 | [`grafos/prim.html`](grafos/prim.html) | Prim — Árbol de Expansión Mínima (cola de prioridad de aristas) | O(E·log E) |
 | [`grafos/kruskal.html`](grafos/kruskal.html) | Kruskal — Árbol de Expansión Mínima (cola de aristas + Union-Find) | O(E·log E) |
 | [`grafos/coloreo.html`](grafos/coloreo.html) | Coloreo de Grafos — Secuencial greedy (orden natural, Welsh-Powell, Matula), por vértice o por color | O(V·log V + E) / O(V·log V + χ·(V+E)) |
-| [`grafos/union-find.html`](grafos/union-find.html) | Union-Find — Comparación de variantes (quick-find, quick-union, weighted, path halving) | — |
 
 DFS, BFS, Dijkstra y Prim permiten:
 - Cargar cualquier grafo no dirigido escribiendo su lista de aristas (`A-B`, una por línea o separadas por coma; un token sin guion declara un nodo aislado); el orden de las aristas define el orden de exploración de los vecinos.
@@ -101,13 +100,6 @@ Kruskal además:
 - Union-Find ingenuo (`union(u, v)`: `padre[find(v)] ← find(u)`) mostrado como vector `padre[]` y como bosque de padres, con el camino de cada `find` y el `padre[]` que cambia en cada `union` resaltados. En el grafo, los vértices de un mismo subárbol comparten color.
 - Tabla de seguimiento (Iteración | Arista aᵢ | w(aᵢ) | find(u) / find(v) | Subárboles | W(MST)), con las aristas descartadas como filas tachadas. Si el grafo no es conexo, devuelve un bosque.
 
-El comparador de Union-Find no dibuja grafos: corre la misma secuencia de operaciones sobre las 4 variantes de Sedgewick a la vez, en una grilla 2×2.
-- Elementos `0..N−1` o con nombres alfanuméricos (ordenados; los que aparecen en las operaciones se agregan solos). Operaciones en vivo (`union(p, q)` / `find(p)` / `connected(p, q)` / `count()`) o como secuencia de texto (`4-3` = union, `?9` = find, `4?3` = connected, `#` = count); cada operación es un paso del historial, navegable como el resto de las herramientas.
-- Cada variante muestra `id[]` (y `sz[]` en las weighted), su bosque, el camino que recorrió `find`, las celdas que cambiaron y una explicación de lo que hizo. `union(p, q)` sigue la convención del libro: `id[find(p)] ← find(q)`; en las weighted, el árbol más chico cuelga del más grande (si empatan, el de q cuelga del de p). La compresión es por *halving*: `id[p] ← id[id[p]]`.
-- Pseudocódigo de `find`, `union`, `connected` y `count` de cada variante (count con el contador de Sedgewick, que `union` decrementa), con las líneas que cambian respecto de la variante anterior resaltadas.
-- Botón 🔍 en cada variante para verla sola, a todo el espacio y al 170% (✖ vuelve a las cuatro).
-- Tabla comparativa con los accesos a `id[]`/`sz[]` (última operación y acumulado) y la altura máxima del bosque de cada variante.
-
 El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
 - Mismo formato de texto (`A-B` o `A-B:costo`, el costo es texto libre y opcional), dirigido o no dirigido, nodos arrastrables con las aristas siguiéndolos en vivo.
 - Paleta de colores Dracula: con un color elegido, cada clic en un nodo lo pinta (el texto pasa a claro u oscuro según el fondo); volver a clickear el color apaga el modo pintar, y ✖ quita el color.
@@ -123,6 +115,7 @@ El editor de grafos no ejecuta ningún algoritmo: solo dibuja.
 | Archivo | Tema | Complejidad |
 |---|---|---|
 | [`estructuras/heap.html`](estructuras/heap.html) | Heap de mínimo (arreglo con la posición 0 sin usar) | insertar/extraer O(log n) |
+| [`estructuras/union-find.html`](estructuras/union-find.html) | Union-Find — Comparación de variantes (quick-find, quick-union, weighted, path halving) | — |
 
 El heap permite:
 - Insertar un valor, extraer el mínimo o consultarlo en vivo: cada operación se reproduce sola, paso a paso (cada comparación e intercambio de flotar/hundir), o se carga una secuencia entera como texto (`7, 5, 9, x, ?`: número = insertar, `x` = extraer, `?` = ver mínimo).
@@ -133,6 +126,13 @@ El heap permite:
 - Contador de intercambios y comparaciones de la operación en curso, al lado de la altura del heap ⌊log₂ n⌋: flotar y hundir hacen como mucho un intercambio por nivel, O(log n).
 - Tira con los mínimos extraídos, en el orden en que salieron.
 - Historial de operaciones clickeable, autoplay con velocidad ajustable, autoguardado, "🆕 Nuevo", "🔗 Compartir" y modo claro/oscuro como el resto.
+
+El comparador de Union-Find no dibuja grafos: corre la misma secuencia de operaciones sobre las 4 variantes de Sedgewick a la vez, en una grilla 2×2.
+- Elementos `0..N−1` o con nombres alfanuméricos (ordenados; los que aparecen en las operaciones se agregan solos). Operaciones en vivo (`union(p, q)` / `find(p)` / `connected(p, q)` / `count()`) o como secuencia de texto (`4-3` = union, `?9` = find, `4?3` = connected, `#` = count); cada operación es un paso del historial, navegable como el resto de las herramientas.
+- Cada variante muestra `id[]` (y `sz[]` en las weighted), su bosque, el camino que recorrió `find`, las celdas que cambiaron y una explicación de lo que hizo. `union(p, q)` sigue la convención del libro: `id[find(p)] ← find(q)`; en las weighted, el árbol más chico cuelga del más grande (si empatan, el de q cuelga del de p). La compresión es por *halving*: `id[p] ← id[id[p]]`.
+- Pseudocódigo de `find`, `union`, `connected` y `count` de cada variante (count con el contador de Sedgewick, que `union` decrementa), con las líneas que cambian respecto de la variante anterior resaltadas.
+- Botón 🔍 en cada variante para verla sola, a todo el espacio y al 170% (✖ vuelve a las cuatro).
+- Tabla comparativa con los accesos a `id[]`/`sz[]` (última operación y acumulado) y la altura máxima del bosque de cada variante.
 
 ### Branch & Bound
 
