@@ -6,7 +6,7 @@ Para una herramienta nueva: recorrer las secciones 1 y 2 y copiar de la referenc
 
 ## 1. Base: toda página
 
-Los tienen las 20 herramientas (en `recursion/call-tree.html` con otros nombres: `newTreeConfirm`, `shareCurrentDiagram`).
+Los tienen las 21 herramientas (en `recursion/call-tree.html` con otros nombres: `newTreeConfirm`, `shareCurrentDiagram`).
 
 | Feature | Qué es | Referencia |
 |---|---|---|
@@ -64,6 +64,7 @@ Features de las secciones 2 y 3 que varían entre herramientas (las de la secci�
 | `dp/knapsack.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ |
 | `dp/lcs.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ |
 | `dp/edit-distance.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ |
+| `dp/fibonacci.html` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ |
 | `recursion/call-tree.html` | · | · | · | · | · | ✅ | · | · | ✅ | · |
 | `recursion/teorema-maestro.html` | · | · | · | · | · | ✅ | · | · | · | · |
 | `complejidad/comparador.html` | · | · | · | · | · | ✅ | · | · | · | · |
@@ -82,10 +83,10 @@ Features de las secciones 2 y 3 que varían entre herramientas (las de la secci�
 | `bnb/knapsack.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | ✅ |
 | `bnb/tsp.html` | ✅ | ✅ | ✅ | ✅ | ✅ | · | ✅ | ✅ | ✅ | ✅ |
 
-Granularidad y fórmula coloreada están en `grafos/floyd-warshall.html` y en las tres de PD ("Por fila" / "Por celda"); las tablas ajustadas al ancho, solo en Floyd · Warshall.
+Granularidad y fórmula coloreada están en `grafos/floyd-warshall.html` y en las tres de PD con tabla (Fibonacci tiene fórmula coloreada, sin granularidad) ("Por fila" / "Por celda"); las tablas ajustadas al ancho, solo en Floyd · Warshall.
 
 ## 5. Brechas
 
 Lo que falta donde sí aplicaría, de más a menos impacto en clase:
 
-1. **Pseudocódigo de PD**: los de Mochila, LCS y Distancia de edición los escribió la herramienta, no son de la cátedra; reemplazarlos por los de las diapositivas cuando estén (cambiar `PSEUDOCODE` y `LINES`).
+1. **Pseudocódigo de PD**: los de Mochila, LCS y Distancia de edición los escribió la herramienta, no son de la cátedra; reemplazarlos por los de las diapositivas cuando estén (cambiar `PSEUDOCODE` y `LINES`). En `dp/fibonacci.html` el de memoización es el de la cátedra (y el ingenuo, el mismo sin memo), pero los dos bottom-up (`fibTab`, `fibDosVariables`) son de la herramienta.

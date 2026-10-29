@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fibonacci — Recursión, memoización y tabulación</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .main-row { flex: 1 1 auto; display: flex; min-height: 0; }
+    .left-col { flex: 2 1 0; display: flex; flex-direction: column; min-width: 0; }
+    .top-row { flex: 1 1 62%; display: flex; min-height: 0; }
+    .tree-area { flex: 1 1 0; position: relative; min-width: 0; }
+    .tree-view { position: absolute; inset: 0; overflow: hidden; }
+    .tree-view svg { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+    .tree-view svg.panning { cursor: grabbing; }
+    .array-view { position: absolute; inset: 0; overflow: auto; padding: 1rem; }
+    .data-panel { flex: 0 1 auto; width: 275px; max-width: 45%; overflow: auto; border-left: 1px solid var(--bs-border-color); padding: .5rem; }
+    .trace-wrap { flex: 1 1 38%; overflow: auto; border-top: 1px solid var(--bs-border-color); padding: .5rem; }
+    .code-panel { flex: 1 1 0; overflow-y: auto; border-left: 1px solid var(--bs-border-color); min-width: 300px; }
+    .footer-bar { flex: 0 0 auto; padding: .25rem 0; }
+    .pseudo-code { font-family: Consolas, monospace; font-size: .8rem; white-space: pre; padding: .5rem 0; overflow-x: auto; }
+    .pseudo-line { padding: .1rem .75rem; min-height: 1.2em; }
+    .pseudo-active { background: var(--bs-warning-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .mini-table td, .mini-table th { padding: .15rem .4rem; }
+    .row-selected > td { background-color: color-mix(in srgb, var(--bs-purple) 18%, var(--bs-body-bg)) !important; }
+    .col-active { background-color: var(--bs-warning-bg-subtle) !important; }
+    .k-row { cursor: pointer; }
+
+    /* Arreglos dp / memo: una caja por índice, que se acomodan en filas (sin scroll horizontal) */
+    .dp-cell { transition: background-color .15s; border: 1px solid var(--bs-border-color); border-radius: 4px; text-align: center; }
+    .dp-box { min-width: 3.4em; }
+    .dp-box.small-box { min-width: 2.6em; }
+    .dp-idx { font-size: .75em; color: var(--bs-secondary-color); border-bottom: 1px solid var(--bs-border-color); }
+    .dp-val { padding: .2em .35em; min-height: 1.6em; }
+    .dp-mark { font-size: .75em; min-height: 1.3em; font-weight: 600; }
+    .cell-selected { background-color: var(--bs-success-bg-subtle) !important; outline: 2px solid var(--bs-success-border-subtle); }
+    .cell-dep-1 { background-color: var(--bs-warning-bg-subtle) !important; outline: 2px solid var(--bs-warning-border-subtle); }
+    .cell-dep-2 { background-color: var(--bs-primary-bg-subtle) !important; outline: 2px solid var(--bs-primary-border-subtle); }
+    .cell-dropped { opacity: .45; text-decoration: line-through; }
+    .katex .cell-selected, .katex [class*='cell-dep-'] { padding: .1em .25em; border-radius: .2em; }
+    .var-box { min-width: 6.5em; }
+
+    /* Árbol de llamadas (SVG) */
+    .fb-edge { stroke: var(--bs-secondary-color); stroke-width: 1.5; }
+    .fb-edge.ghost { stroke-dasharray: 4 4; opacity: .45; }
+    /* Al cambiar de vista o compactarse la lista, nodos y aristas se deslizan (ver listLayout). */
+    .fb-node, .fb-edge { transition: transform .3s ease, d .3s ease; }
+    .fb-box { stroke: var(--bs-secondary-color); stroke-width: 1.2; }
+    .fb-text { font-family: Consolas, monospace; font-size: 12px; }
+    .fb-active .fb-box { stroke: var(--bs-primary); stroke-width: 3; }
+    .fb-hit .fb-box { stroke-dasharray: 5 3; stroke-width: 2; }
+    .fb-pinned .fb-box { stroke: var(--bs-purple); stroke-width: 4; }
+    .fb-current .fb-box { stroke: var(--bs-warning); stroke-width: 4; stroke-dasharray: none; }
+    .fb-dim { opacity: .25; }
+    .fb-ghost { opacity: .45; }
+    .fb-ghost .fb-box { fill: var(--bs-tertiary-bg); stroke-dasharray: 4 3; }
+    .fb-ghost .fb-text { fill: var(--bs-secondary-color); }
+    .fb-hitmark circle { fill: var(--bs-warning); stroke: var(--bs-body-bg); }
+    .fb-hitmark text { font-size: 11px; }
+    .legend-box { display: inline-block; width: 1.6em; height: 1.1em; border-radius: 3px; border: 1px solid var(--bs-secondary-color); background: var(--bs-tertiary-bg); flex: none; }
+    .legend-box.base { border-radius: .55em; }
+    .legend-box.active { border: 2px solid var(--bs-primary); }
+    .legend-box.current { border: 2px solid var(--bs-warning); }
+    .legend-box.hit { border: 2px dashed var(--bs-secondary-color); }
+    .legend-box.ghost { border: 1px dashed var(--bs-secondary-color); opacity: .5; }
+    .legend-box.pinned { border: 2px solid var(--bs-purple); }
+    .k-chip { display: inline-block; width: .9em; height: .9em; border-radius: 2px; vertical-align: middle; border: 1px solid var(--bs-border-color); }
+    @media (max-width: 768px) {
+      #app { height: auto; }
+      .main-row, .top-row { flex-direction: column; }
+      .tree-area { flex: none; height: 380px; }
+      .data-panel { width: auto; max-width: none; border-left: none; border-top: 1px solid var(--bs-border-color); }
+      .code-panel { border-left: none; border-top: 1px solid var(--bs-border-color); }
+    }
+    summary.card-header { cursor: pointer; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <a class="navbar-brand mb-0 h5" href="../index.html" title="Volver a todas las herramientas"><span class="opacity-75 me-1">←</span>🐇 Fibonacci — Recursión, memoización y tabulación</a>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">{{ complexity.badge }}</span>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-light" @click="restartAnimation" title="Reiniciar animación (mismos datos)">⏮</button>
+        <button class="btn btn-outline-light" @click="stepBackward" :disabled="currentStepIndex === 0" title="Paso anterior (←)">⏪</button>
+        <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
+        <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente (→)">⏩</button>
+        <button class="btn btn-outline-light" @click="jumpToEnd" :disabled="isAtEnd" title="Saltar al final">⏭</button>
+      </div>
+      <input type="range" class="form-range" style="width:80px" min="100" max="2000" step="50"
+        v-model.number="speedMs" title="Velocidad de reproducción (milisegundos por paso)" />
+      <button class="btn btn-sm btn-outline-light" v-if="isTree" @click="fitToView" title="Ajustar vista (arrastrar para mover, rueda para zoom)">🎯</button>
+      <button class="btn btn-sm btn-outline-light" v-if="isTree" @click="toggleView"
+        :title="viewMode === 'list' ? 'Vista de lista (como el comando tree): clic para volver al árbol' : 'Vista de árbol: clic para verlo como lista (como el comando tree), que escala mejor'">{{ viewMode === 'list' ? '📂 Lista' : '🌳 Árbol' }}</button>
+      <span v-if="mode === 'memo'" :title="ghostAvailable ? 'Mostrar en gris las llamadas que el ingenuo haría y la memoización evita' : `El árbol fantasma solo se dibuja con n ≤ ${GHOST_MAX} (con n = ${n} el ingenuo tendría ${fmt(metrics.naive.calls)} llamadas)`">
+        <button class="btn btn-sm" :class="showGhost && ghostAvailable ? 'btn-light' : 'btn-outline-light'" :disabled="!ghostAvailable" @click="toggleGhost">👻 Fantasma</button>
+      </span>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver al ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir esta configuración">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="main-row">
+    <div class="left-col">
+      <div class="top-row">
+        <div class="tree-area">
+          <div class="tree-view" ref="treeViewEl">
+            <svg v-if="isTree && currentStep" :class="{ panning: isPanning }"
+              @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="onPointerUp" @pointercancel="onPointerUp"
+              @wheel.prevent="onWheel">
+              <g :transform="`translate(${camera.x}, ${camera.y}) scale(${camera.scale})`">
+                <path v-for="nd in drawnNodes.filter(nd => nd.parent !== null)" :key="`e${nd.id}`" class="fb-edge" :class="{ ghost: nd.ghost }"
+                  fill="none" :style="`d: path('${edgePath(nd)}')`" />
+                <g v-for="nd in drawnNodes" :key="nd.id" :data-node-id="nd.id" style="cursor: pointer;" class="fb-node" :class="nodeClass(nd)"
+                  :style="`transform: translate(${pos(nd).x}px, ${pos(nd).y}px)`">
+                  <title>{{ nodeTitle(nd) }}</title>
+                  <rect class="fb-box" :x="-layout.boxW / 2" :y="-BOX_H / 2" :width="layout.boxW" :height="BOX_H"
+                    :rx="nd.k < 2 ? BOX_H / 2 : 6" :style="nd.ghost ? '' : `fill: ${colorHex(nd.k + 1)}`" />
+                  <text class="fb-text" text-anchor="middle" y="-4" :style="nd.ghost ? '' : `fill: ${textColorOn(colorHex(nd.k + 1))}`">{{ nd.label }}</text>
+                  <text class="fb-text" text-anchor="middle" y="12" :style="nd.ghost ? '' : `fill: ${textColorOn(colorHex(nd.k + 1))}`">{{ nodeValue(nd) }}</text>
+                  <g class="fb-hitmark" v-if="currentStep.status[nd.id] === 'hit'" :transform="`translate(${layout.boxW / 2 - 2}, ${-BOX_H / 2 + 2})`">
+                    <circle r="9" />
+                    <text text-anchor="middle" dominant-baseline="central">⚡</text>
+                  </g>
+                </g>
+              </g>
+            </svg>
+          </div>
+
+          <div class="array-view" v-if="!isTree && currentStep">
+            <div v-if="mode === 'tab2'" class="mb-3">
+              <div class="d-flex gap-3 flex-wrap justify-content-center mb-2">
+                <div v-for="v in ['prev', 'curr', 'sig']" :key="v" class="card var-box text-center">
+                  <div class="card-header py-1 small font-monospace">{{ v }}</div>
+                  <div class="card-body py-2 fs-4 font-monospace" :class="varClass(v)">{{ fmtVal(currentStep.vars[v]) }}</div>
+                  <div class="card-footer py-1 small text-muted">{{ currentStep.before && v in currentStep.before ? `antes: ${fmtVal(currentStep.before[v])}` : ' ' }}</div>
+                </div>
+              </div>
+              <p class="small text-muted text-center mb-0">Espacio O(1): estas tres variables son todo lo que guarda <span class="font-monospace">fibDosVariables</span>, cualquiera sea n.</p>
+            </div>
+            <div class="small fw-semibold mb-1">{{ mode === 'tab2' ? 'dp[0..n] completo, solo para comparar (no se guarda): lo tachado ya no hace falta' : `dp[0..${n}]` }}</div>
+            <div class="d-flex flex-wrap gap-2 font-monospace">
+              <div v-for="k in range" :key="k" class="dp-cell dp-box" :class="cellClass(k)" :title="`dp[${k}]`">
+                <div class="dp-idx">{{ k }}</div>
+                <div class="dp-val">{{ fmtVal(currentStep.dp[k]) }}</div>
+                <div class="dp-mark" :class="markerOf(k).cls">{{ markerOf(k).text }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="data-panel" v-if="isTree && currentStep">
+          <div class="card mb-2 border-2" style="border-color: var(--bs-purple);" v-if="pinnedK !== null">
+            <div class="card-header py-1 px-2 small fw-semibold d-flex justify-content-between align-items-center">
+              <span>📌 fib({{ pinnedK }})</span>
+              <button class="btn btn-sm py-0 px-1" @click="pinnedK = null" title="Soltar (Esc)">✕</button>
+            </div>
+            <div class="card-body p-2 small">
+              <div>Aparece <b>{{ kCounts[pinnedK].total }}</b> {{ kCounts[pinnedK].total === 1 ? 'vez' : 'veces' }} en el árbol ({{ kCounts[pinnedK].sofar }} hasta este paso).</div>
+              <div v-if="mode === 'memo'" class="mt-1">Se calcula 1 vez; {{ kCounts[pinnedK].hits === 1 ? 'la otra es un cache hit' : `las otras ${kCounts[pinnedK].hits} son cache hits` }}{{ kCounts[pinnedK].hits ? '' : ' (ninguna repetición)' }}.</div>
+              <div v-else-if="kCounts[pinnedK].total > 1" class="mt-1">Las {{ kCounts[pinnedK].total }} dan lo mismo: {{ kCounts[pinnedK].total - 1 }} son trabajo repetido.</div>
+            </div>
+          </div>
+
+          <div class="card mb-2">
+            <div class="card-header py-1 px-2 small fw-semibold">📚 Call stack ({{ currentStep.stack.length }})</div>
+            <ul class="list-group list-group-flush small font-monospace">
+              <li v-if="!currentStep.stack.length" class="list-group-item py-1 px-2 text-muted">(vacía)</li>
+              <li v-for="(f, idx) in [...currentStep.stack].reverse()" :key="f.id" class="list-group-item py-1 px-2" :class="{ 'fw-semibold': idx === 0 }">
+                <span class="k-chip me-1" :style="`background: ${colorHex(f.k + 1)}`"></span>fib({{ f.k }})
+                <span class="text-muted">{{ frameWait(f, idx === 0) }}</span>
+              </li>
+            </ul>
+            <div class="card-footer py-1 px-2 small">Depth máximo: <b>{{ currentStep.maxDepth }}</b> {{ currentStep.maxDepth === 1 ? 'stack frame' : 'stack frames' }}</div>
+          </div>
+
+          <div class="card mb-2" v-if="mode === 'memo'">
+            <div class="card-header py-1 px-2 small fw-semibold">🗂️ memo</div>
+            <div class="card-body p-2">
+              <div class="d-flex flex-wrap gap-1 font-monospace small">
+                <div v-for="k in range" :key="k" class="dp-cell dp-box small-box" :class="cellClass(k)" :title="`memo[${k}]`">
+                  <div class="dp-idx">{{ k }}</div>
+                  <div class="dp-val">{{ fmtVal(currentStep.memo[k]) }}</div>
+                </div>
+              </div>
+              <p class="small text-muted mt-1 mb-0">Se llena cuando cada llamada retorna.</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header py-1 px-2 small fw-semibold">🔢 Llamadas por k</div>
+            <div class="card-body p-2">
+              <table class="table table-sm table-bordered text-center mb-0 mini-table small">
+                <thead>
+                  <tr>
+                    <th class="dp-header-cell">llamada</th>
+                    <th class="dp-header-cell" title="Llamadas hechas hasta este paso">hasta acá</th>
+                    <th class="dp-header-cell" title="Llamadas en toda la ejecución">total</th>
+                    <th class="dp-header-cell" v-if="mode === 'memo'" title="Cache hits">⚡</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="k in [...range].reverse()" :key="k" class="k-row" :class="{ 'row-selected': pinnedK === k }" @click="pinnedK = pinnedK === k ? null : k" title="Clic para resaltar todas sus apariciones">
+                    <td class="font-monospace text-start text-nowrap"><span class="k-chip me-1" :style="`background: ${colorHex(k + 1)}`"></span>fib({{ k }})</td>
+                    <td class="font-monospace">{{ kCounts[k].sofar }}</td>
+                    <td class="font-monospace">{{ kCounts[k].total }}</td>
+                    <td class="font-monospace" v-if="mode === 'memo'">{{ kCounts[k].hits }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="trace-wrap" v-if="currentStep">
+        <div class="card">
+          <div class="card-header py-1 px-2 small fw-semibold">📊 Comparación de enfoques (n = {{ n }})</div>
+          <div class="card-body p-2">
+            <div style="overflow-x: auto;">
+              <table class="table table-sm table-bordered text-center align-middle mb-1 small">
+                <thead>
+                  <tr>
+                    <th class="dp-header-cell"></th>
+                    <th v-for="(m, key) in MODES" :key="key" class="dp-header-cell" :class="{ 'col-active': key === mode }">{{ m.short }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in COMPARE_ROWS" :key="row.field">
+                    <th class="dp-header-cell text-start fw-normal" :title="row.title">{{ row.label }}</th>
+                    <td v-for="(m, key) in MODES" :key="key" :class="{ 'col-active': key === mode, 'font-monospace': row.mono }">{{ compareCell(key, row.field) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="small text-muted mb-2">En la columna del modo activo, «hasta este paso / total»; en las demás, el total para n = {{ n }}{{ n > MODES.naive.max ? ` (el ingenuo, por fórmula: con n > ${MODES.naive.max} el árbol no se dibuja)` : '' }}.</p>
+            <div class="small">
+              <p class="mb-1"><b>Subproblemas superpuestos.</b> fib(n) necesita fib(n−1) y fib(n−2), pero fib(n−1) vuelve a pedir fib(n−2), y así para abajo: los mismos subproblemas aparecen una y otra vez. Con n = {{ n }}, el ingenuo hace {{ fmt(metrics.naive.calls) }} llamadas para solo {{ n + 1 }} valores distintos{{ n >= 3 ? `, y calcula fib(2) ${fmt(FIB[n - 1])} veces` : '' }}. Clic en un nodo del árbol (o en «Llamadas por k») para ver las repeticiones.</p>
+              <p class="mb-1"><b>Subestructura óptima.</b> La solución de fib(n) se arma directamente con las de sus subproblemas: fib(n) = fib(n−1) + fib(n−2), sin importar cómo se obtuvieron. Fibonacci no optimiza nada, pero es la misma propiedad que pide PD en problemas como la mochila: la solución óptima se compone de soluciones óptimas de subproblemas. Con las dos propiedades, alcanza con calcular cada subproblema una vez y guardarlo.</p>
+              <p class="mb-0"><b>Memoización vs. tabulación.</b> Top-down: la misma recursión, guardando cada resultado al retornar (memo); calcula solo lo que hace falta pero usa el call stack ({{ n }} stack frames). Bottom-up: se llena dp desde los casos base, en un orden en que cada celda ya tiene listas las que necesita; sin recursión, y como cada dp[i] solo usa los dos anteriores, se puede quedar con dos variables: espacio O(1).</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-panel">
+      <div class="p-3">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">⚙️ Ejecución</div>
+          <div class="card-body p-2">
+            <label class="form-label small text-muted mb-1" for="mode-select">Modo</label>
+            <select id="mode-select" class="form-select form-select-sm mb-2" v-model="mode" @change="onModeChange">
+              <option v-for="(m, key) in MODES" :key="key" :value="key">{{ m.name }}</option>
+            </select>
+            <label class="form-label small text-muted mb-1" for="n-input">n (de 1 a {{ MODES[mode].max }} en este modo)</label>
+            <div class="input-group input-group-sm mb-2">
+              <input id="n-input" type="number" class="form-control" min="1" :max="MODES[mode].max" step="1" v-model="nDraft" @keydown.enter="applyN" />
+              <button class="btn btn-dark" @click="applyN">▶ Aplicar</button>
+            </div>
+            <div class="d-flex gap-1 align-items-center small">
+              <span class="text-muted me-1">Sugeridos:</span>
+              <button v-for="v in SUGGESTED" :key="v" class="btn btn-sm py-0" :class="n === v ? 'btn-secondary' : 'btn-outline-secondary'" @click="nDraft = v; applyN()">{{ v }}</button>
+            </div>
+            <div class="alert small py-1 px-2 mt-2 mb-0" :class="notice.cls" v-if="notice">{{ notice.text }}</div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">💻 Pseudocódigo <span class="small text-muted fw-normal" v-if="!MODES[mode].catedra" title="La cátedra da la versión con memoización; esta la escribió la herramienta">(no es de la cátedra)</span></div>
+          <div class="card-body p-0">
+            <div class="pseudo-code">
+              <div v-for="(line, idx) in MODES[mode].code" :key="idx" class="pseudo-line"
+                :class="{ 'pseudo-active': currentStep && currentStep.activeLines.includes(idx) }">{{ line }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">🔍 Explicación</div>
+          <div class="card-body">
+            <div v-if="currentStep">
+              <span class="badge fs-6 text-wrap text-start" :class="currentStep.badge.cls">{{ currentStep.badge.icon }} {{ currentStep.badge.text }}</span>
+            </div>
+            <div id="formula-box" class="bg-body-tertiary rounded p-2 mt-3 overflow-auto" v-show="currentStep && currentStep.formula"></div>
+            <div class="mt-3 small" v-if="currentStep && Object.keys(currentStep.vars).length">
+              <span class="text-muted me-1">Variables:</span>
+              <span v-for="(v, name) in currentStep.vars" :key="name" class="badge bg-light text-dark border font-monospace me-1">{{ name }} = {{ fmtVal(v) }}</span>
+            </div>
+            <p class="small text-muted mt-3 mb-0" v-if="currentStep">Paso {{ currentStepIndex + 1 }} de {{ steps.length }}</p>
+          </div>
+        </div>
+
+        <details class="card mb-3">
+          <summary class="card-header fw-semibold">⏱️ Complejidad: <span v-html="tex(complexity.total)"></span></summary>
+          <div class="card-body p-2" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered align-middle mb-2 small">
+              <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                  <td class="font-monospace">{{ r[0] }}</td>
+                  <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }" v-html="tex(c)"></td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="small mb-0" v-html="texInline(complexity.note)"></p>
+          </div>
+        </details>
+
+        <div class="card">
+          <div class="card-header fw-semibold">Leyenda</div>
+          <ul class="list-group list-group-flush small" v-if="isTree">
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="k-chip" :style="`background: ${colorHex(3)}`"></span><span class="k-chip" :style="`background: ${colorHex(4)}`"></span> Un color por k: todas las apariciones de fib(k) comparten color</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box base"></span> Caso base, fib(0) o fib(1) (bordes redondeados)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box active"></span> En el call stack: llamada que todavía no retornó («…»)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box current"></span> Llamada del paso actual</li>
+            <li class="list-group-item d-flex align-items-center gap-2" v-if="mode === 'memo'"><span class="legend-box hit"></span> ⚡ Cache hit: ya estaba en memo, no se expande</li>
+            <li class="list-group-item d-flex align-items-center gap-2" v-if="mode === 'memo'"><span class="legend-box ghost"></span> 👻 Fantasma: lo que el ingenuo calcularía y la memoización evita</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box pinned"></span> fib(k) seleccionado con un clic: todas sus repeticiones (Esc suelta)</li>
+          </ul>
+          <ul class="list-group list-group-flush small" v-else>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box cell-selected"></span> dp[i]: el que se calcula{{ mode === 'tab2' ? ' (sig, y curr después del corrimiento)' : '' }}</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box cell-dep-1"></span> dp[i−1]{{ mode === 'tab2' ? ': curr antes, prev después' : '' }}</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box cell-dep-2"></span> dp[i−2]{{ mode === 'tab2' ? ': prev antes; después ya no se guarda' : '' }}</li>
+            <li class="list-group-item d-flex align-items-center gap-2" v-if="mode === 'tab2'"><span class="legend-box cell-dropped"></span> Tachado: un valor que la versión de 2 variables ya descartó</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar text-center small border-top">
+    <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } = Vue;
+
+const DEFAULT_STATE = { n: 5, mode: 'naive', showGhost: true };
+const SUGGESTED = [5, 6, 8];
+const GHOST_MAX = 10; // el fantasma usa las posiciones del árbol ingenuo: con n = 10 son 177 nodos
+
+// Cada modo con su pseudocódigo; el de memoización es el de la cátedra, el ingenuo es el mismo sin memo.
+const MODES = {
+  naive: { name: 'Recursivo ingenuo', short: 'Ingenuo', max: 10, tree: true, catedra: true, time: 'O(2ⁿ)', space: 'O(n)', code: [
+    'ALGORITMO fib(n)',
+    '  SI n < 2 ENTONCES',
+    '    RETORNAR n',
+    '  SI NO',
+    '    RETORNAR fib(n − 1) + fib(n − 2)',
+  ] },
+  memo: { name: 'Top-down (memoización)', short: 'Top-down', max: 20, tree: true, catedra: true, time: 'O(n)', space: 'O(n)', code: [
+    'ALGORITMO Fib(n)',
+    '  RETORNAR fibMemo(n, nuevo mapa)',
+    '',
+    'ALGORITMO fibMemo(n, memo)',
+    '  SI n ESTA EN memo ENTONCES',
+    '    RETORNAR memo[n]',
+    '  SI n < 2 ENTONCES',
+    '    memo[n] ← n',
+    '  SI NO',
+    '    memo[n] ← fibMemo(n − 1, memo) + fibMemo(n − 2, memo)',
+    '  RETORNAR memo[n]',
+  ] },
+  tab: { name: 'Bottom-up (tabulación)', short: 'Bottom-up', max: 40, tree: false, catedra: false, time: 'O(n)', space: 'O(n)', code: [
+    'ALGORITMO fibTab(n)',
+    '  dp ← nuevo arreglo [0..n]',
+    '  dp[0] ← 0',
+    '  dp[1] ← 1',
+    '  PARA i ← 2 HASTA n HACER',
+    '    dp[i] ← dp[i − 1] + dp[i − 2]',
+    '  RETORNAR dp[n]',
+  ] },
+  tab2: { name: 'Bottom-up con 2 variables', short: '2 variables', max: 40, tree: false, catedra: false, time: 'O(n)', space: 'O(1)', code: [
+    'ALGORITMO fibDosVariables(n)',
+    '  prev ← 0',
+    '  curr ← 1',
+    '  PARA i ← 2 HASTA n HACER',
+    '    sig ← prev + curr',
+    '    prev ← curr',
+    '    curr ← sig',
+    '  RETORNAR curr',
+  ] },
+};
+
+const FIB = [0, 1];
+while (FIB.length < 42) FIB.push(FIB.at(-1) + FIB.at(-2));
+
+// Totales de cada enfoque para n ≥ 1 (la tabla de comparación los usa también para modos no corridos).
+function metricsFor(n) {
+  return {
+    naive: { calls: 2 * FIB[n + 1] - 1, hits: 0, sums: FIB[n + 1] - 1, maxDepth: n, mem: `${n} stack frames` },
+    memo: { calls: 2 * n - 1, hits: Math.max(0, n - 2), sums: n - 1, maxDepth: n, mem: `${n} stack frames + ${n + 1} en memo` },
+    tab: { calls: 1, hits: 0, sums: n - 1, maxDepth: 1, mem: `${n + 1} celdas de dp` },
+    tab2: { calls: 1, hits: 0, sums: n - 1, maxDepth: 1, mem: '3 variables' },
+  };
+}
+const COMPARE_ROWS = [
+  { field: 'calls', label: 'Llamadas', mono: true, title: 'Cantidad de llamadas a la función' },
+  { field: 'hits', label: 'Cache hits', mono: true, title: 'Llamadas que encontraron el valor en memo' },
+  { field: 'sums', label: 'Sumas', mono: true, title: 'Operaciones fib(n−1) + fib(n−2)' },
+  { field: 'maxDepth', label: 'Stack depth máx.', mono: true, title: 'Depth máximo del call stack (stack frames a la vez)' },
+  { field: 'mem', label: 'Memoria', title: 'Lo que se guarda a la vez' },
+  { field: 'time', label: 'Tiempo', title: 'Complejidad temporal teórica' },
+  { field: 'space', label: 'Espacio', title: 'Complejidad espacial teórica' },
+];
+
+const box = (cls, t) => `\\htmlClass{${cls}}{${t}}`;
+const fibTex = k => `\\mathrm{fib}(${k})`;
+
+function computeSteps(n, mode) {
+  return MODES[mode].tree ? recursiveSteps(n, mode === 'memo') : iterativeSteps(n, mode === 'tab2');
+}
+
+// ── Recursivo (ingenuo o con memo): corre la recursión real, con el call stack (stack frames) a la vista,
+// y crea un nodo por llamada en el orden en que se hace (DFS: primero fib(n−1), después fib(n−2)).
+function recursiveSteps(n, useMemo) {
+  const L = useMemo ? { call: [3, 4], hit: [5], base: [6, 7, 10], rec: [9, 10] } : { call: [0], base: [1, 2], rec: [3, 4] };
+  const nodes = [], steps = [], stack = [], status = {}, val = {};
+  const memo = Array(n + 1).fill(null);
+  let maxDepth = 0, current = null, hits = 0, sums = 0;
+  function snapshot(activeLines, badge, extra = {}) {
+    steps.push({ activeLines, status: { ...status }, val: { ...val }, stack: stack.map(f => ({ ...f })), memo: [...memo],
+      maxDepth, current, calls: Object.keys(status).length, hits, sums,
+      vars: current === null ? {} : { n: nodes[current].k }, badge, formula: '', memoCell: null, ...extra });
+  }
+  function call(k, parent, depth) {
+    const node = { id: nodes.length, parent, depth, k, label: `fib(${k})` };
+    nodes.push(node);
+    const caller = stack.at(-1);
+    const frame = { id: node.id, k, wait: null, a: null };
+    stack.push(frame);
+    status[node.id] = 'active';
+    maxDepth = Math.max(maxDepth, stack.length);
+    current = node.id;
+    const from = caller ? ` desde fib(${caller.k}), su ${caller.wait === 1 ? 'primer' : 'segundo'} sumando` : '';
+    const check = !useMemo ? '' : memo[k] !== null ? ` ¿Está ${k} en memo? Sí: memo[${k}] = ${memo[k]}.` : ` ¿Está ${k} en memo? Todavía no.`;
+    snapshot(L.call, { icon: '📞', text: `Se llama a fib(${k})${from}: push de su stack frame (${stack.length} en el call stack).${check}`, cls: 'bg-primary' });
+
+    let v, lines, badge, formula, memoCell = null;
+    if (useMemo && memo[k] !== null) {
+      v = memo[k];
+      hits++;
+      lines = L.hit;
+      formula = `${box('cell-selected', fibTex(k))} = \\mathit{memo}[${k}] = \\mathbf{${v}}`;
+      memoCell = { k, kind: 'hit' };
+      badge = { icon: '⚡', text: `Cache hit: fib(${k}) ya estaba en memo y retorna ${v} sin volver a calcularlo. Su subárbol no se expande. Pop de su stack frame.`, cls: 'bg-warning text-dark' };
+    } else if (k < 2) {
+      v = k;
+      lines = L.base;
+      formula = `${box('cell-selected', fibTex(k))} = \\mathbf{${k}} \\quad \\text{(caso base: } ${k} < 2\\text{)}`;
+      if (useMemo) { memo[k] = k; memoCell = { k, kind: 'fill' }; }
+      badge = { icon: '🌱', text: `Caso base: ${k} < 2, fib(${k}) = ${k}.${useMemo ? ` memo[${k}] ← ${k}.` : ''} Retorna ${k}: pop de su stack frame.`, cls: 'bg-success' };
+    } else {
+      frame.wait = 1;
+      const a = call(k - 1, node.id, depth + 1);
+      frame.wait = 2;
+      frame.a = a;
+      const b = call(k - 2, node.id, depth + 1);
+      v = a + b;
+      sums++;
+      lines = L.rec;
+      formula = `${box('cell-selected', fibTex(k))} = ${box('cell-dep-1', fibTex(k - 1))} + ${box('cell-dep-2', fibTex(k - 2))} = ${box('cell-dep-1', a)} + ${box('cell-dep-2', b)} = \\mathbf{${v}}`;
+      if (useMemo) { memo[k] = v; memoCell = { k, kind: 'fill' }; }
+      badge = { icon: '↩️', text: `fib(${k}) = fib(${k - 1}) + fib(${k - 2}) = ${a} + ${b} = ${v}.${useMemo ? ` memo[${k}] ← ${v}.` : ''} Retorna: pop de su stack frame.`, cls: 'bg-info text-dark' };
+    }
+    stack.pop();
+    status[node.id] = memoCell?.kind === 'hit' ? 'hit' : 'done';
+    val[node.id] = v;
+    current = node.id;
+    snapshot(lines, badge, { formula, memoCell });
+    return v;
+  }
+
+  if (useMemo) snapshot([0, 1], { icon: '🗂️', text: `Fib(${n}) crea un memo vacío y llama a fibMemo(${n}, memo).`, cls: 'bg-secondary' });
+  const result = call(n, null, 0);
+  current = null;
+  const end = useMemo
+    ? `Fib(${n}) = ${result} con ${nodes.length} llamadas (${hits} cache hits), en vez de las ${2 * FIB[n + 1] - 1} del ingenuo.`
+    : `fib(${n}) = ${result} con ${nodes.length} llamadas, para solo ${n + 1} valores distintos. El call stack llegó a ${maxDepth} stack frames.`;
+  snapshot(useMemo ? [1] : [], { icon: '🏁', text: end, cls: 'bg-success' }, { result });
+
+  // Fantasma: debajo de cada cache hit, el subárbol que el ingenuo hubiera expandido. Con él, memo + fantasma
+  // es exactamente el árbol ingenuo (mismo orden DFS), así que el layout coincide. Sus ids van después de los reales.
+  if (useMemo && n <= GHOST_MAX) {
+    const ghost = (k, parent, depth) => {
+      if (k < 2) return;
+      for (const kk of [k - 1, k - 2]) {
+        const id = nodes.length;
+        nodes.push({ id, parent, depth, k: kk, label: `fib(${kk})`, ghost: true });
+        ghost(kk, id, depth + 1);
+      }
+    };
+    nodes.filter(nd => !nd.ghost && steps.at(-1).status[nd.id] === 'hit').forEach(nd => ghost(nd.k, nd.id, nd.depth + 1));
+  }
+  return { nodes, steps };
+}
+
+// ── Bottom-up: llena dp de izquierda a derecha. Con 2 variables, dp se lleva igual, pero solo para
+// mostrar al lado lo que la tabla completa guardaría (keep = desde qué índice sigue haciendo falta).
+function iterativeSteps(n, twoVars) {
+  const steps = [], dp = Array(n + 1).fill(null);
+  let vars = { n }, sums = 0;
+  function snapshot(activeLines, badge, extra = {}) {
+    steps.push({ activeLines, dp: [...dp], vars: { ...vars }, calls: 1, hits: 0, sums, maxDepth: 1,
+      sel: null, deps: false, keep: null, before: null, badge, formula: '', ...extra });
+  }
+  if (!twoVars) {
+    snapshot([0, 1], { icon: '📦', text: `Se crea dp con ${n + 1} lugares (de 0 a ${n}), vacío.`, cls: 'bg-secondary' });
+    dp[0] = 0;
+    snapshot([2], { icon: '🌱', text: 'Caso base: dp[0] ← 0.', cls: 'bg-success' }, { sel: 0, formula: `${box('cell-selected', 'dp[0]')} = \\mathbf{0}` });
+    dp[1] = 1;
+    snapshot([3], { icon: '🌱', text: 'Caso base: dp[1] ← 1.', cls: 'bg-success' }, { sel: 1, formula: `${box('cell-selected', 'dp[1]')} = \\mathbf{1}` });
+    for (let i = 2; i <= n; i++) {
+      const a = dp[i - 1], b = dp[i - 2];
+      dp[i] = a + b;
+      sums++;
+      vars = { n, i };
+      snapshot([4, 5], { icon: '➕', text: `i = ${i}: dp[${i}] ← dp[${i - 1}] + dp[${i - 2}] = ${a} + ${b} = ${dp[i]}. Los dos ya estaban, porque dp se llena de izquierda a derecha.`, cls: 'bg-info text-dark' }, {
+        sel: i, deps: true,
+        formula: `${box('cell-selected', `dp[${i}]`)} = ${box('cell-dep-1', `dp[${i - 1}]`)} + ${box('cell-dep-2', `dp[${i - 2}]`)} = ${box('cell-dep-1', a)} + ${box('cell-dep-2', b)} = \\mathbf{${dp[i]}}`,
+      });
+    }
+    vars = { n };
+    snapshot([6], { icon: '🏁', text: `Retorna dp[${n}] = ${dp[n]}: ${sums} ${sums === 1 ? 'suma' : 'sumas'}, sin recursión y con ${n + 1} celdas.`, cls: 'bg-success' }, { sel: n, result: dp[n] });
+    return { nodes: [], steps };
+  }
+
+  let prev = 0, curr = 1;
+  dp[0] = 0;
+  vars = { n, prev, curr: null, sig: null };
+  snapshot([0, 1], { icon: '🌱', text: 'prev ← 0, que es fib(0).', cls: 'bg-success' }, { sel: 0, keep: 0 });
+  dp[1] = 1;
+  vars = { n, prev, curr, sig: null };
+  snapshot([2], { icon: '🌱', text: 'curr ← 1, que es fib(1).', cls: 'bg-success' }, { sel: 1, keep: 0 });
+  for (let i = 2; i <= n; i++) {
+    const before = { prev, curr };
+    const sig = prev + curr;
+    prev = curr;
+    curr = sig;
+    dp[i] = sig;
+    sums++;
+    vars = { n, i, prev, curr, sig };
+    snapshot([3, 4, 5, 6], { icon: '🔁', text: `i = ${i}: sig ← prev + curr = ${before.prev} + ${before.curr} = ${sig}; después prev ← ${before.curr} y curr ← ${sig}. Las variables se corren un lugar: dp[${i - 2}] ya no hace falta.`, cls: 'bg-info text-dark' }, {
+      sel: i, deps: true, keep: i - 1, before,
+      formula: `${box('cell-selected', '\\mathit{sig}')} = ${box('cell-dep-2', '\\mathit{prev}')} + ${box('cell-dep-1', '\\mathit{curr}')} = ${box('cell-dep-2', before.prev)} + ${box('cell-dep-1', before.curr)} = \\mathbf{${sig}}`,
+    });
+  }
+  vars = { n, prev, curr };
+  snapshot([7], { icon: '🏁', text: `Retorna curr = ${curr}: las mismas ${sums} ${sums === 1 ? 'suma' : 'sumas'} que la tabla, pero con 3 variables en vez de ${n + 1} celdas.`, cls: 'bg-success' }, { sel: n, keep: Math.max(0, n - 1), result: curr });
+  return { nodes: [], steps };
+}
+
+// ── Layout del árbol: cada hoja ocupa una columna y cada padre queda centrado sobre sus hijos
+// (Reingold-Tilford simplificado, como bnb/subset-sum.html). Recibe un prefijo de ids 0..k−1.
+const BOX_H = 36, LEVEL_H = 64, GAP = 10, PAD = 16;
+// Vista de lista (como el comando tree): sangría por nivel, alto de fila y dónde baja el codo desde el padre.
+const INDENT = 48, ROW_H = BOX_H + 8, ELBOW = 14;
+function layoutTree(nodes) {
+  const boxW = Math.max(56, Math.max(...nodes.map(nd => nd.label.length)) * 7.3 + 16);
+  const kids = nodes.map(() => []);
+  nodes.forEach(nd => { if (nd.parent !== null) kids[nd.parent].push(nd.id); });
+  let slot = 0;
+  function place(id) {
+    const nd = nodes[id], ch = kids[id];
+    if (ch.length) { ch.forEach(place); nd.x = (nodes[ch[0]].x + nodes[ch[ch.length - 1]].x) / 2; }
+    else nd.x = PAD + boxW / 2 + slot++ * (boxW + GAP);
+    nd.y = PAD + BOX_H / 2 + nd.depth * LEVEL_H;
+  }
+  place(0);
+  const depth = Math.max(...nodes.map(nd => nd.depth));
+  return { boxW, width: 2 * PAD + slot * boxW + (slot - 1) * GAP, height: 2 * PAD + BOX_H + depth * LEVEL_H };
+}
+
+// Color por k (copiado de grafos/coloreo.html): los 8 de Dracula y, desde el 9, uno fijo por número.
+const DRACULA = [
+  { name: 'cyan', hex: '#8be9fd' }, { name: 'verde', hex: '#50fa7b' }, { name: 'naranja', hex: '#ffb86c' },
+  { name: 'rosa', hex: '#ff79c6' }, { name: 'violeta', hex: '#bd93f9' }, { name: 'rojo', hex: '#ff5555' },
+  { name: 'amarillo', hex: '#f1fa8c' }, { name: 'gris azulado', hex: '#6272a4' },
+];
+// Texto oscuro o claro (también de Dracula) según la luminancia relativa del fondo (WCAG).
+function textColorOn(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? '#282a36' : '#f8f8f2';
+}
+function colorHex(k) {
+  if (k <= DRACULA.length) return DRACULA[k - 1].hex;
+  const hash = Math.imul(k ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
+  const h = hash % 360, s = 0.6 + (hash >>> 9) % 30 / 100, l = 0.55 + (hash >>> 17) % 20 / 100;
+  const f = n => {
+    const t = (n + h / 30) % 12;
+    return Math.round(255 * (l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(t - 3, 9 - t, 1)))).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+function fmt(x) { return typeof x === 'number' ? x.toLocaleString('es-AR') : x; }
+function fmtVal(v) { return v === null || v === undefined ? '—' : fmt(v); }
+
+// Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
+function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
+// Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
+function texInline(s) {
+  return s.split('$').map((t, i) => i % 2 ? tex(t) : t.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('');
+}
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total]; veces, costo y total en LaTeX.
+const COMPLEXITY = {
+  naive: {
+    total: 'O(2^n)', badge: 'Recursión · O(2ⁿ)',
+    headers: ['Línea', 'Veces', 'Costo'],
+    rows: [
+      ['SI n < 2 ENTONCES', '2F(n+1) - 1', 'O(\\varphi^n)'],
+      ['RETORNAR n', 'F(n+1)', 'O(\\varphi^n)'],
+      ['RETORNAR fib(n − 1) + fib(n − 2)', 'F(n+1) - 1', 'O(\\varphi^n)'],
+    ],
+    note: 'Cada llamada hace $O(1)$ además de sus dos hijas, así que el costo es la cantidad de llamadas: $2F(n+1) - 1$, que crece como $\\varphi^n$ con $\\varphi = \\frac{1 + \\sqrt{5}}{2} \\approx 1{,}618$. Se suele acotar por $O(2^n)$: $T(n) = T(n-1) + T(n-2) + O(1) \\le 2\\,T(n-1) + O(1)$. En memoria, el call stack llega a $n$ stack frames a la vez: $O(n)$.',
+  },
+  memo: {
+    total: 'O(n)', badge: 'DP top-down · O(n)',
+    headers: ['Línea', 'Veces', 'Costo'],
+    rows: [
+      ['SI n ESTA EN memo ENTONCES', '2n - 1', 'O(n)'],
+      ['RETORNAR memo[n]  (cache hit)', 'n - 2', 'O(n)'],
+      ['memo[n] ← n', '2', 'O(1)'],
+      ['memo[n] ← fibMemo(n − 1, memo) + fibMemo(n − 2, memo)', 'n - 1', 'O(n)'],
+      ['RETORNAR memo[n]', 'n + 1', 'O(n)'],
+    ],
+    note: 'Con un mapa de acceso $O(1)$, cada $\\mathrm{fib}(k)$ se calcula una sola vez ($n + 1$ valores) y las otras $n - 2$ llamadas son cache hits que retornan enseguida: $2n - 1$ llamadas en total, $O(n)$. En memoria: el memo con $n + 1$ valores y el call stack con hasta $n$ stack frames, $O(n)$. (Contado para $n \\ge 2$.)',
+  },
+  tab: {
+    total: 'O(n)', badge: 'DP bottom-up · O(n)',
+    headers: ['Línea', 'Veces', 'Costo'],
+    rows: [
+      ['dp ← nuevo arreglo [0..n]', '1', 'O(n)'],
+      ['dp[0] ← 0;  dp[1] ← 1', '1', 'O(1)'],
+      ['PARA i ← 2 HASTA n HACER', 'n - 1', 'O(n)'],
+      ['dp[i] ← dp[i − 1] + dp[i − 2]', 'n - 1', 'O(n)'],
+      ['RETORNAR dp[n]', '1', 'O(1)'],
+    ],
+    note: 'Un solo recorrido de 2 a $n$ con una suma por vuelta: $O(n)$ de tiempo y sin recursión (el call stack no crece). La memoria es el arreglo de $n + 1$ celdas: $O(n)$. Ojo: los valores crecen como $\\varphi^n$ y $\\mathrm{fib}(93)$ ya no entra en un entero de 64 bits.',
+  },
+  tab2: {
+    total: 'O(n),\\ \\text{espacio } O(1)', badge: 'DP · O(n) tiempo, O(1) espacio',
+    headers: ['Línea', 'Veces', 'Costo'],
+    rows: [
+      ['prev ← 0;  curr ← 1', '1', 'O(1)'],
+      ['PARA i ← 2 HASTA n HACER', 'n - 1', 'O(n)'],
+      ['sig ← prev + curr', 'n - 1', 'O(n)'],
+      ['prev ← curr;  curr ← sig', 'n - 1', 'O(n)'],
+      ['RETORNAR curr', '1', 'O(1)'],
+    ],
+    note: 'El mismo tiempo que la tabla, $O(n)$, pero como cada $dp[i]$ solo usa los dos anteriores alcanza con guardar esos dos: el espacio pasa de $O(n)$ a $O(1)$ (tres variables, cualquiera sea $n$). A cambio se pierde la tabla: sirve si solo se pide $\\mathrm{fib}(n)$, no todos los valores.',
+  },
+};
+
+// Auto-chequeo: F(10) = 55 y F(40) = 102334155; con n = 5 el ingenuo hace 15 llamadas con el call stack
+// en 5 stack frames, y la memoización 9 llamadas (2n − 1) con 3 cache hits. Además, cada corrida tiene
+// que coincidir con los totales por fórmula de la tabla de comparación.
+(function selfCheck() {
+  console.assert(FIB[10] === 55 && FIB[40] === 102334155, 'Fibonacci: valores', FIB[10], FIB[40]);
+  const naive5 = computeSteps(5, 'naive').steps.at(-1), memo5 = computeSteps(5, 'memo').steps.at(-1);
+  console.assert(naive5.calls === 15 && naive5.maxDepth === 5, 'Fibonacci: ingenuo n = 5', naive5.calls, naive5.maxDepth);
+  console.assert(memo5.calls === 9 && memo5.hits === 3, 'Fibonacci: memo n = 5', memo5.calls, memo5.hits);
+  for (const mode of Object.keys(MODES)) {
+    for (let n = 1; n <= MODES[mode].max; n++) {
+      const end = computeSteps(n, mode).steps.at(-1), m = metricsFor(n)[mode];
+      const ok = end.result === FIB[n] && ['calls', 'hits', 'sums', 'maxDepth'].every(f => end[f] === m[f]);
+      console.assert(ok, `Fibonacci: ${mode} n = ${n}`, end, m);
+    }
+  }
+})();
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-dp-fibonacci';
+
+    const n = ref(DEFAULT_STATE.n);
+    const mode = ref(DEFAULT_STATE.mode);
+    const showGhost = ref(DEFAULT_STATE.showGhost);
+    const nDraft = ref(DEFAULT_STATE.n);
+    const notice = ref(null);
+
+    const isTree = computed(() => MODES[mode.value].tree);
+    const ghostAvailable = computed(() => mode.value === 'memo' && n.value <= GHOST_MAX);
+    const range = computed(() => Array.from({ length: n.value + 1 }, (_, k) => k));
+    const metrics = computed(() => metricsFor(n.value));
+    const complexity = computed(() => COMPLEXITY[mode.value]);
+
+    const nodes = ref([]);
+    const layout = ref({ boxW: 56, width: 0, height: 0 });
+    const steps = ref([]);
+    const currentStepIndex = ref(0);
+    const isPlaying = ref(false);
+    const speedMs = ref(600);
+    let playTimer = null;
+
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+    const treeViewEl = ref(null);
+    const view = { w: 800, h: 400 };
+
+    const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
+    const isAtEnd = computed(() => currentStepIndex.value >= steps.value.length - 1);
+    // Nodos reales ya llamados en este paso y, con el fantasma prendido, los que cuelgan de un cache hit ya visible.
+    const drawnNodes = computed(() => {
+      const s = currentStep.value;
+      if (!s || !isTree.value) return [];
+      const ghostOn = showGhost.value && ghostAvailable.value;
+      const drawn = new Set();
+      return nodes.value.filter(nd => {
+        const ok = nd.ghost ? ghostOn && (nd.parent in s.status || drawn.has(nd.parent)) : nd.id in s.status;
+        if (ok && nd.ghost) drawn.add(nd.id);
+        return ok;
+      });
+    });
+    // Apariciones de cada fib(k): en todo el árbol, hasta este paso y (con memo) cuántas fueron cache hits.
+    const kCounts = computed(() => {
+      const counts = range.value.map(() => ({ total: 0, sofar: 0, hits: 0 }));
+      const s = currentStep.value, end = steps.value.at(-1);
+      if (!s || !isTree.value) return counts;
+      for (const nd of nodes.value) {
+        if (nd.ghost) continue;
+        counts[nd.k].total++;
+        if (nd.id in s.status) counts[nd.k].sofar++;
+        if (end.status[nd.id] === 'hit') counts[nd.k].hits++;
+      }
+      return counts;
+    });
+    // fib(k) seleccionado con un clic: se resaltan todas sus apariciones.
+    const pinnedK = ref(null);
+
+    // ── Vista: árbol (posiciones fijas de layoutTree) o lista como el comando tree, copiada de
+    // bnb/subset-sum.html: una fila por nodo dibujado, en preorden, con sangría por profundidad.
+    // Al aparecer una llamada, lo de abajo baja una fila (transiciones CSS de transform y d).
+    const viewMode = ref('tree');
+    const listLayout = computed(() => {
+      const at = {}, kids = {};
+      for (const nd of drawnNodes.value) if (nd.parent !== null) (kids[nd.parent] ||= []).push(nd.id);
+      let row = 0;
+      const half = layout.value.boxW / 2;
+      function place(id) {
+        at[id] = { x: PAD + nodes.value[id].depth * INDENT + half, y: PAD + BOX_H / 2 + row++ * ROW_H };
+        (kids[id] || []).forEach(place);
+      }
+      if (drawnNodes.value.length) place(0);
+      return at;
+    });
+    const listWidth = computed(() => 2 * PAD + Math.max(...nodes.value.map(nd => nd.depth)) * INDENT + layout.value.boxW);
+    function pos(nd) { return viewMode.value === 'list' ? listLayout.value[nd.id] : nd; }
+    // Las dos vistas usan un trazo de 3 puntos (recta = codo degenerado) para que d se pueda interpolar.
+    function edgePath(nd) {
+      const p = pos(nodes.value[nd.parent]), c = pos(nd), half = layout.value.boxW / 2;
+      if (viewMode.value === 'list') {
+        const x = p.x - half + ELBOW;
+        return `M ${x} ${p.y + BOX_H / 2} L ${x} ${c.y} L ${c.x - half} ${c.y}`;
+      }
+      return `M ${p.x} ${p.y + BOX_H / 2} L ${c.x} ${c.y - BOX_H / 2} L ${c.x} ${c.y - BOX_H / 2}`;
+    }
+    function toggleView() {
+      viewMode.value = viewMode.value === 'list' ? 'tree' : 'list';
+      fitToView();
+      persist();
+    }
+
+    // ── Cámara: pan arrastrando, zoom con la rueda (centrado en el cursor). No se persiste.
+    // fitToView encuadra todo el árbol (sin agrandarlo más de 1:1), salvo que el usuario haya movido la vista.
+    const camera = reactive({ x: 0, y: 0, scale: 1 });
+    let userAdjustedCamera = false;
+    // En la lista encuadra a lo ancho, arriba a la izquierda, y después sigue al paso.
+    function fitToView() {
+      if (viewMode.value === 'list') {
+        camera.scale = Math.min(1, (view.w - 16) / listWidth.value);
+        camera.x = 8;
+      } else {
+        const { width, height } = layout.value;
+        camera.scale = Math.min(1, (view.w - 16) / width, (view.h - 16) / height);
+        camera.x = (view.w - width * camera.scale) / 2;
+      }
+      camera.y = 8;
+      userAdjustedCamera = false;
+      followStep();
+    }
+    // En la lista, si la llamada del paso queda fuera de pantalla, la vista la trae a un tercio de la
+    // altura. Deja de seguir cuando el usuario mueve la vista; 🎯 lo reactiva.
+    function followStep() {
+      const s = currentStep.value;
+      if (viewMode.value !== 'list' || userAdjustedCamera || !s || s.current === null) return;
+      const at = listLayout.value[s.current];
+      if (!at) return;
+      const y = camera.y + at.y * camera.scale;
+      if (y < BOX_H || y > view.h - BOX_H) camera.y = view.h / 3 - at.y * camera.scale;
+    }
+    watch([currentStepIndex, viewMode], followStep);
+    const isPanning = ref(false);
+    let panStart = null;
+    function onPointerDown(e) {
+      isPanning.value = true;
+      panStart = { px: e.clientX, py: e.clientY, x: camera.x, y: camera.y };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    function onPointerMove(e) {
+      if (!isPanning.value) return;
+      camera.x = panStart.x + e.clientX - panStart.px;
+      camera.y = panStart.y + e.clientY - panStart.py;
+      if (Math.hypot(e.clientX - panStart.px, e.clientY - panStart.py) > 4) userAdjustedCamera = true;
+    }
+    // Un clic (sin arrastrar) sobre un nodo selecciona su k; en el vacío, lo suelta.
+    // El <svg> tiene la captura del puntero, así que el nodo se busca por coordenadas.
+    function onPointerUp(e) {
+      if (!isPanning.value) return;
+      isPanning.value = false;
+      if (Math.hypot(e.clientX - panStart.px, e.clientY - panStart.py) > 4) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-node-id]');
+      pinnedK.value = el ? nodes.value[Number(el.dataset.nodeId)].k : null;
+    }
+    function onWheel(e) {
+      if (viewMode.value === 'list' && !e.ctrlKey) { // en la lista la rueda hace scroll; Ctrl+rueda, zoom
+        camera.y -= e.deltaY;
+        userAdjustedCamera = true;
+        return;
+      }
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const next = Math.min(3, Math.max(0.05, camera.scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+      camera.x = mx - (mx - camera.x) * next / camera.scale;
+      camera.y = my - (my - camera.y) * next / camera.scale;
+      camera.scale = next;
+      userAdjustedCamera = true;
+    }
+    function onKeydown(e) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'Escape') pinnedK.value = null;
+      // ← → avanzan y retroceden.
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); stepBackward(); }
+    }
+
+    function nodeClass(nd) {
+      const s = currentStep.value, st = s.status[nd.id];
+      return {
+        'fb-ghost': nd.ghost,
+        'fb-active': st === 'active',
+        'fb-hit': st === 'hit',
+        'fb-current': s.current === nd.id,
+        'fb-pinned': pinnedK.value === nd.k,
+        'fb-dim': pinnedK.value !== null && pinnedK.value !== nd.k,
+      };
+    }
+    function nodeValue(nd) {
+      const s = currentStep.value;
+      if (nd.ghost) return '';
+      return nd.id in s.val ? `= ${s.val[nd.id]}` : '…';
+    }
+    function nodeTitle(nd) {
+      if (nd.ghost) return `${nd.label}: llamada que haría el ingenuo y la memoización evita. Clic para resaltar todas las apariciones.`;
+      const st = { active: 'en el call stack, esperando', done: `retornó ${currentStep.value.val[nd.id]}`, hit: `cache hit: retornó ${currentStep.value.val[nd.id]} desde memo` }[currentStep.value.status[nd.id]];
+      return `${nd.label}: ${st}. Clic para resaltar todas sus apariciones.`;
+    }
+    function frameWait(f, top) {
+      if (f.wait === 1) return `espera fib(${f.k - 1})`;
+      if (f.wait === 2) return `fib(${f.k - 1}) = ${f.a}, espera fib(${f.k - 2})`;
+      return top ? 'ejecutando' : '';
+    }
+
+    // Arreglos: en memo, la celda que se llena (verde) o se lee en un cache hit (amarillo);
+    // en bottom-up, dp[i] y sus dos dependencias, con los mismos colores que la fórmula.
+    function cellClass(k) {
+      const s = currentStep.value;
+      if (mode.value === 'memo') return s.memoCell?.k === k ? (s.memoCell.kind === 'hit' ? 'cell-dep-1' : 'cell-selected') : '';
+      if (s.sel === k) return 'cell-selected';
+      if (s.deps && k === s.sel - 1) return 'cell-dep-1';
+      if (s.deps && k === s.sel - 2) return 'cell-dep-2';
+      if (mode.value === 'tab2' && s.dp[k] !== null && k < s.keep) return 'cell-dropped';
+      return '';
+    }
+    function markerOf(k) {
+      const s = currentStep.value;
+      if (mode.value === 'tab2') {
+        if (s.dp[k] === null) return {};
+        if (k === s.keep + 1) return { text: 'curr', cls: 'text-success-emphasis' };
+        if (k === s.keep) return { text: 'prev', cls: 'text-warning-emphasis' };
+        return {};
+      }
+      if (!s.deps) return {};
+      if (k === s.sel) return { text: '= i', cls: 'text-success-emphasis' };
+      if (k === s.sel - 1) return { text: 'i−1 ➜', cls: 'text-warning-emphasis' };
+      if (k === s.sel - 2) return { text: 'i−2 ➜', cls: 'text-primary-emphasis' };
+      return {};
+    }
+    function varClass(v) {
+      const s = currentStep.value;
+      if (!s.before) return '';
+      return v === 'prev' ? 'cell-dep-1' : 'cell-selected';
+    }
+    function compareCell(key, field) {
+      const m = metrics.value[key];
+      if (field === 'time' || field === 'space') return MODES[key][field];
+      if (field === 'mem') return m.mem;
+      const s = currentStep.value;
+      return key === mode.value && s ? `${fmt(s[field])} / ${fmt(m[field])}` : fmt(m[field]);
+    }
+
+    // ── KaTeX manual: la fórmula del paso, con cada término del mismo color que su celda (\htmlClass).
+    function renderExplanation() {
+      const el = document.getElementById('formula-box');
+      if (!el) return;
+      katex.render(currentStep.value?.formula || '', el, { displayMode: true, throwOnError: false, trust: ctx => ctx.command === '\\htmlClass', strict: 'ignore' });
+    }
+    watch([currentStepIndex, steps], () => nextTick(renderExplanation));
+
+    // ── Persistencia ──
+    function currentState() {
+      return { n: n.value, mode: mode.value, showGhost: showGhost.value, view: viewMode.value };
+    }
+    function applyState(data) {
+      mode.value = MODES[data.mode] ? data.mode : mode.value;
+      const v = Number(data.n ?? n.value);
+      n.value = Number.isInteger(v) ? Math.min(MODES[mode.value].max, Math.max(1, v)) : n.value;
+      showGhost.value = !!(data.showGhost ?? showGhost.value);
+      viewMode.value = ['tree', 'list'].includes(data.view) ? data.view : viewMode.value;
+      nDraft.value = n.value;
+      notice.value = null;
+      regenerateSteps();
+    }
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState()));
+    }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) { resetToDefault(); return; }
+        applyState(JSON.parse(raw));
+      } catch (e) { resetToDefault(); }
+    }
+
+    // ── Compartir por URL (#d=...) ──
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer la configuración de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo" (2 pasos) ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { if (newConfirm.value) newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      newConfirm.value = false;
+      applyState(DEFAULT_STATE);
+      persist();
+    }
+
+    // ── Configuración: n (con el tope del modo) y modo ──
+    function applyN() {
+      const v = Number(nDraft.value), { max, name } = MODES[mode.value];
+      if (String(nDraft.value).trim() === '' || !Number.isInteger(v) || v < 1) {
+        notice.value = { cls: 'alert-danger', text: 'n tiene que ser un entero ≥ 1.' };
+        return;
+      }
+      if (v > max) {
+        const why = mode.value === 'naive' ? ` (el árbol tendría ${fmt(2 * FIB[v + 1] - 1)} nodos)` : mode.value === 'memo' ? ' para que el árbol se pueda seguir' : '';
+        notice.value = { cls: 'alert-danger', text: `En el modo ${name.toLowerCase()}, n llega hasta ${max}${why}.` };
+        return;
+      }
+      applyState({ ...currentState(), n: v });
+      persist();
+    }
+    function onModeChange() {
+      const { max, name } = MODES[mode.value];
+      const clamped = n.value > max;
+      applyState({ ...currentState(), n: Math.min(n.value, max) });
+      if (clamped) notice.value = { cls: 'alert-warning', text: `n bajó a ${max}, el máximo del modo ${name.toLowerCase()}.` };
+      persist();
+    }
+    function toggleGhost() {
+      showGhost.value = !showGhost.value;
+      relayout();
+      persist();
+    }
+
+    // ── Reproducción ──
+    function relayout() {
+      if (!isTree.value) return;
+      const ghostOn = showGhost.value && ghostAvailable.value;
+      layout.value = layoutTree(ghostOn ? nodes.value : nodes.value.filter(nd => !nd.ghost));
+      fitToView();
+    }
+    function regenerateSteps() {
+      const run = computeSteps(n.value, mode.value);
+      nodes.value = run.nodes;
+      steps.value = run.steps;
+      currentStepIndex.value = 0;
+      pinnedK.value = null;
+      stopAutoplay();
+      relayout();
+    }
+    function goToStep(i) {
+      currentStepIndex.value = Math.max(0, Math.min(steps.value.length - 1, i));
+    }
+    function stepForward() { if (!isAtEnd.value) goToStep(currentStepIndex.value + 1); else stopAutoplay(); }
+    function stepBackward() { goToStep(currentStepIndex.value - 1); }
+    function restartAnimation() { stopAutoplay(); goToStep(0); }
+    function jumpToEnd() { stopAutoplay(); goToStep(steps.value.length - 1); }
+    function stopAutoplay() {
+      isPlaying.value = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    }
+    function togglePlay() {
+      if (isPlaying.value) { stopAutoplay(); return; }
+      if (isAtEnd.value) goToStep(0);
+      isPlaying.value = true;
+      playTimer = setInterval(() => {
+        if (isAtEnd.value) { stopAutoplay(); return; }
+        stepForward();
+      }, speedMs.value);
+    }
+
+    // ── Tema claro/oscuro ──
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+    }
+
+    // ── Ciclo de vida ──
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      view.w = entry.contentRect.width;
+      view.h = entry.contentRect.height;
+      if (!userAdjustedCamera) fitToView();
+    });
+    loadInitialState();
+    onMounted(() => {
+      resizeObserver.observe(treeViewEl.value);
+      window.addEventListener('keydown', onKeydown);
+      nextTick(renderExplanation);
+    });
+    onBeforeUnmount(() => {
+      resizeObserver.disconnect();
+      window.removeEventListener('keydown', onKeydown);
+      stopAutoplay();
+    });
+
+    return {
+      complexity, tex, texInline,
+      MODES, SUGGESTED, GHOST_MAX, COMPARE_ROWS, FIB, BOX_H, colorHex, textColorOn, fmt, fmtVal,
+      n, mode, nDraft, notice, applyN, onModeChange, isTree, range, metrics, compareCell,
+      showGhost, ghostAvailable, toggleGhost,
+      nodes, layout, drawnNodes, kCounts, pinnedK, treeViewEl,
+      camera, isPanning, fitToView, viewMode, toggleView, pos, edgePath, onPointerDown, onPointerMove, onPointerUp, onWheel,
+      nodeClass, nodeValue, nodeTitle, frameWait, cellClass, markerOf, varClass,
+      steps, currentStepIndex, currentStep, isAtEnd,
+      isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation, jumpToEnd,
+      newConfirm, handleNewClick, shareCopied, shareCurrentState,
+      isDark, toggleTheme,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
