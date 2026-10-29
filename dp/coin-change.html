@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cambio de monedas — Programación Dinámica</title>
+
+  <!-- Tema claro/oscuro: se fija ANTES de cargar el CSS para evitar parpadeo -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('theme');
+      const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+
+  <style>
+    /* Arreglo dp: una caja por monto, que se acomodan en filas (sin scroll horizontal) */
+    .dp-cell { cursor: pointer; transition: background-color .15s; border: 1px solid var(--bs-border-color); border-radius: 4px; text-align: center; min-width: 3.4em; }
+    .dp-cell:hover { background-color: var(--bs-tertiary-bg) !important; }
+    .dp-idx { font-size: .75em; color: var(--bs-secondary-color); border-bottom: 1px solid var(--bs-border-color); }
+    .dp-val { padding: .2em .35em; min-height: 1.6em; font-weight: 700; }
+    .dp-mark { font-size: .75em; min-height: 1.3em; color: var(--bs-secondary-color); }
+    .dp-header-cell { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-emphasis-color) !important; }
+    .cell-selected    { background-color: var(--bs-success-bg-subtle) !important; outline: 2px solid var(--bs-success-border-subtle); }
+    .cell-dep-best    { background-color: var(--bs-warning-bg-subtle) !important; outline: 2px solid var(--bs-warning-border-subtle); }
+    .cell-dep-other   { background-color: var(--bs-primary-bg-subtle) !important; outline: 2px solid var(--bs-primary-border-subtle); }
+    .cell-dep-current { background-color: var(--bs-danger-bg-subtle) !important; outline: 2px solid var(--bs-danger-border-subtle); }
+    .cell-path { border: 2px solid var(--bs-purple) !important; }
+    .pseudo-code { font-family: Consolas, monospace; font-size: .8rem; white-space: pre; padding: .5rem 0; overflow-x: auto; }
+    .pseudo-line { padding: .1rem .75rem; min-height: 1.2em; }
+    .pseudo-active { background: var(--bs-warning-bg-subtle); color: var(--bs-emphasis-color); font-weight: 600; }
+    .katex .cell-selected, .katex [class*='cell-dep-'] { padding: .1em .25em; border-radius: .2em; }
+    summary.card-header { cursor: pointer; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <a class="navbar-brand mb-0 h5" href="../index.html" title="Volver a todas las herramientas"><span class="opacity-75 me-1">←</span>🪙 Cambio de monedas — Programación Dinámica</a>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary">DP · O(M·k)</span>
+      <template v-if="steps.length">
+        <div class="btn-group btn-group-sm" title="De a cuánto avanza cada paso">
+          <button class="btn" :class="granularity === 'amount' ? 'btn-light' : 'btn-outline-light'" @click="setGranularity('amount')" title="Cada paso completa un monto">🔢 Por monto</button>
+          <button class="btn" :class="granularity === 'coin' ? 'btn-light' : 'btn-outline-light'" @click="setGranularity('coin')" title="Cada paso prueba una moneda">🪙 Por moneda</button>
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-light" @click="restartAnimation" title="Volver al principio">⏮</button>
+          <button class="btn btn-outline-light" @click="stepBackward" :disabled="isAtStart" title="Paso anterior (←)">⏪</button>
+          <button class="btn btn-outline-light" @click="togglePlay" :title="isPlaying ? 'Pausar' : 'Reproducir'">{{ isPlaying ? '⏸️' : '▶️' }}</button>
+          <button class="btn btn-outline-light" @click="stepForward" :disabled="isAtEnd" title="Paso siguiente (→)">⏩</button>
+        </div>
+        <input type="range" class="form-range" style="width:80px" min="150" max="2000" step="50" v-model.number="speedMs" title="Velocidad de reproducción" />
+      </template>
+      <button class="btn btn-sm" :class="newConfirm ? 'btn-warning text-dark' : 'btn-outline-light'" @click="handleNewClick" title="Volver a los valores de ejemplo">
+        {{ newConfirm ? '¿Seguro?' : '🆕 Nuevo' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="shareCurrentState" title="Copiar un link para compartir esta configuración">
+        {{ shareCopied ? '✅ Copiado' : '🔗 Compartir' }}
+      </button>
+      <button class="btn btn-sm btn-outline-light" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">{{ isDark ? '☀️' : '🌙' }}</button>
+    </div>
+  </nav>
+
+  <div class="container-fluid py-3">
+    <div class="row g-3">
+
+      <!-- PANEL IZQUIERDO -->
+      <div class="col-12 col-md-4 col-xl-3">
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">Datos</div>
+          <div class="card-body">
+            <label class="form-label small">Monedas</label>
+            <input class="form-control mb-2 font-monospace" v-model="coinsText" placeholder="ej: 1, 3, 4" @keydown.enter="solve" />
+            <label class="form-label small">Monto M (1 a {{ MAX_AMOUNT }})</label>
+            <input type="number" class="form-control mb-2" min="1" :max="MAX_AMOUNT" v-model.number="amount" @keydown.enter="solve" />
+            <label class="form-label small">Ejemplos</label>
+            <select class="form-select form-select-sm" @change="loadExample($event.target.value); $event.target.value = ''">
+              <option value="">Elegir un ejemplo…</option>
+              <option v-for="(ex, idx) in EXAMPLES" :key="idx" :value="idx">{{ ex.label }}</option>
+            </select>
+            <div class="alert alert-danger small py-1 px-2 mt-2 mb-0" v-if="inputError">{{ inputError }}</div>
+          </div>
+        </div>
+
+        <button class="btn btn-dark w-100 mb-3" @click="solve">▶ Aplicar</button>
+
+        <div class="card mb-3" v-if="steps.length">
+          <div class="card-header fw-semibold">💻 Pseudocódigo</div>
+          <div class="card-body p-0">
+            <div class="pseudo-code">
+              <div v-for="(line, idx) in PSEUDOCODE" :key="idx" class="pseudo-line"
+                :class="{ 'pseudo-active': activeLines.includes(idx) }">{{ line }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" v-if="steps.length">
+          <div class="card-header fw-semibold">Leyenda</div>
+          <ul class="list-group list-group-flush small">
+            <li class="list-group-item d-flex align-items-center gap-2">
+              <span class="badge bg-success">&nbsp;&nbsp;</span> Monto en foco (el del paso o el clickeado)
+            </li>
+            <li class="list-group-item d-flex align-items-center gap-2">
+              <span class="badge bg-warning text-dark">&nbsp;&nbsp;</span> dp[i − c] de la moneda ganadora (la mejor hasta ahora)
+            </li>
+            <li class="list-group-item d-flex align-items-center gap-2">
+              <span class="badge bg-primary">&nbsp;&nbsp;</span> dp[i − c] consultado y descartado
+            </li>
+            <li class="list-group-item d-flex align-items-center gap-2">
+              <span class="badge bg-danger">&nbsp;&nbsp;</span> dp[i − c] de la moneda que se prueba en el paso
+            </li>
+            <li class="list-group-item d-flex align-items-center gap-2">
+              <span class="badge border border-2 text-body" style="border-color: var(--bs-purple) !important;">&nbsp;&nbsp;</span> Camino de la reconstrucción
+            </li>
+          </ul>
+        </div>
+
+        <div class="mt-4 mb-4">
+          <p> Hecho con ❤️ por <a href="https://github.com/programacion-avanzada">Programación Avanzada</a> (y <a href="https://claude.ai">Claude</a>)</p>
+        </div>
+
+      </div>
+
+      <!-- PANEL DERECHO -->
+      <div class="col-12 col-md-8 col-xl-9">
+
+        <div class="card" v-if="!steps.length">
+          <div class="card-body text-center text-muted py-5">
+            <div class="fs-1">🪙</div>
+            <p class="mt-2">Ingresá las monedas y el monto, y pulsá <strong>Aplicar</strong>.</p>
+          </div>
+        </div>
+
+        <template v-else>
+
+          <!-- Banner -->
+          <div class="card mb-3 border-success">
+            <div class="card-body d-flex flex-wrap align-items-center gap-4">
+              <template v-if="isComplete">
+                <div>
+                  <div class="text-muted small">Mínima cantidad de monedas</div>
+                  <div class="fs-3 fw-bold" :class="solution.length ? 'text-success' : 'text-danger'">dp[{{ solvedM }}] = {{ fmt(dpArr[solvedM]) }}</div>
+                </div>
+                <div>
+                  <div class="text-muted small mb-1">Solución</div>
+                  <div class="font-monospace fw-semibold" v-if="solution.length">{{ solvedM }} = {{ solution.join(' + ') }}</div>
+                  <div class="text-danger" v-else>No hay solución: ninguna combinación de monedas forma {{ solvedM }}.</div>
+                </div>
+                <div>
+                  <div class="text-muted small mb-1">Greedy (siempre la moneda más grande que entra)</div>
+                  <div v-if="greedyCoins">
+                    <span class="font-monospace">{{ solvedM }} = {{ greedyCoins.join(' + ') }}</span> → {{ greedyCoins.length }} moneda{{ greedyCoins.length === 1 ? '' : 's' }}
+                    <span class="badge" :class="greedyCoins.length === dpArr[solvedM] ? 'bg-success' : 'bg-danger'">{{ greedyCoins.length === dpArr[solvedM] ? '✓ óptimo' : '✗ no es óptimo' }}</span>
+                  </div>
+                  <div v-else>Se traba y no llega a {{ solvedM }}<span v-if="solution.length"> <span class="badge bg-danger">✗ aunque hay solución</span></span>.</div>
+                </div>
+              </template>
+              <div v-else class="text-muted">
+                <div class="small">Mínima cantidad de monedas</div>
+                <div>Se conoce al llenar la última celda, dp[{{ solvedM }}].</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Arreglo dp -->
+          <div class="card mb-3">
+            <div class="card-header fw-semibold">Arreglo de Programación Dinámica</div>
+            <div class="card-body">
+              <div class="mb-2 small">
+                Monedas:
+                <span v-for="c in solvedCoins" :key="c" class="badge font-monospace me-1"
+                  :class="granularity === 'coin' && currentStep.phase === 'coin' && currentStep.c === c ? 'bg-danger' : 'bg-light text-dark border'">{{ c }}</span>
+              </div>
+              <div class="d-flex flex-wrap gap-2 font-monospace">
+                <div v-for="k in solvedM + 1" :key="k - 1" class="dp-cell" :class="cellClass(k - 1)" @click="selectCell(k - 1)" :title="`dp[${k - 1}]`">
+                  <div class="dp-idx">{{ k - 1 }}</div>
+                  <div class="dp-val">{{ fmt(valueAt(k - 1)) }}</div>
+                  <div class="dp-mark">{{ markOf(k - 1) }}</div>
+                </div>
+              </div>
+              <div class="small text-muted mt-2">Debajo de cada valor, la moneda elegida para ese monto: desde dp[{{ solvedM }}] se resta y se salta, hasta llegar a 0.</div>
+            </div>
+          </div>
+
+          <!-- Explicación -->
+          <div class="card">
+            <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+              <span>🔍 Explicación paso a paso</span>
+              <button class="btn btn-sm btn-outline-secondary py-0" v-if="selected !== null" @click="clearSelection" title="Volver a seguir el monto del paso (Esc)">✕</button>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <span class="badge fs-6 text-wrap text-start" :class="stepBadge.cls">{{ stepBadge.icon }} {{ stepBadge.text }}</span>
+                <span class="small text-muted ms-2">{{ progressText }}</span>
+              </div>
+              <p class="text-muted text-center py-3 mb-0" v-if="!focus">
+                Hacé clic en cualquier celda del arreglo para ver cómo se calculó ese valor.
+              </p>
+              <div class="row g-3" v-else>
+                <div class="col-12 col-lg-6">
+                  <p class="fw-semibold small text-muted text-uppercase mb-1">Fórmula de recurrencia</p>
+                  <div class="border rounded p-3 bg-body-tertiary" id="formula-box"></div>
+                  <div class="mt-2" v-if="verdict">
+                    <span :class="['badge', 'fs-6', verdict.cls]">{{ verdict.icon }} {{ verdict.text }}</span>
+                  </div>
+                </div>
+                <div class="col-12 col-lg-6">
+                  <p class="fw-semibold small text-muted text-uppercase mb-1">Sustitución de valores</p>
+                  <div class="border rounded p-3 bg-body-tertiary" id="subst-box"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <details class="card mt-3">
+            <summary class="card-header fw-semibold">⏱️ Complejidad: <span v-html="tex(complexity.total)"></span></summary>
+            <div class="card-body p-2" style="overflow-x: auto;">
+              <table class="table table-sm table-bordered align-middle mb-2 small">
+                <thead><tr><th v-for="h in complexity.headers" :key="h" class="dp-header-cell">{{ h }}</th></tr></thead>
+                <tbody>
+                  <tr v-for="(r, idx) in complexity.rows" :key="idx">
+                    <td class="font-monospace">{{ r[0] }}</td>
+                    <td v-for="(c, k) in r.slice(1)" :key="k" :class="{ 'text-nowrap': k === r.length - 2 }" v-html="tex(c)"></td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="small mb-0" v-html="texInline(complexity.note)"></p>
+            </div>
+          </details>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, computed, nextTick, watch, onMounted, onBeforeUnmount } = Vue;
+
+const MAX_AMOUNT = 50;
+const EXAMPLES = [
+  { label: '{1, 3, 4}, M = 6 — greedy falla', coinsText: '1, 3, 4', amount: 6 },
+  { label: '{1, 5, 10, 25}, M = 30 — greedy acierta', coinsText: '1, 5, 10, 25', amount: 30 },
+  { label: '{1, 5, 6, 9}, M = 11 — greedy falla', coinsText: '1, 5, 6, 9', amount: 11 },
+  { label: '{2}, M = 3 — sin solución', coinsText: '2', amount: 3 },
+  { label: '{3, 5}, M = 9 — greedy se traba', coinsText: '3, 5', amount: 9 },
+];
+
+const PSEUDOCODE = [
+  'ALGORITMO CambioMonedas(monedas[1..k], M)',
+  '    dp = arreglo[0..M], elegida = arreglo[1..M]',
+  '    dp[0] = 0',
+  '    PARA i DESDE 1 HASTA M HACER',
+  '        dp[i] = ∞',
+  '    PARA i DESDE 1 HASTA M HACER',
+  '        PARA CADA c EN monedas HACER',
+  '            SI c ≤ i Y dp[i-c] + 1 < dp[i] ENTONCES',
+  '                dp[i] = dp[i-c] + 1',
+  '                elegida[i] = c',
+  '    RETORNAR dp[M]',
+];
+// Líneas activas de cada tipo de paso.
+const LINES = { init: [1, 2, 3, 4], improve: [5, 6, 7, 8, 9], noImprove: [5, 6, 7], amount: [5, 6, 7, 8, 9], end: [10] };
+
+function fmt(v) { return v === Infinity ? '∞' : v; }
+function fmtTex(v) { return v === Infinity ? '\\infty' : String(v); }
+
+// Monedas separadas por comas o espacios: enteros positivos sin repetir, de menor a mayor.
+function parseCoins(text) {
+  const tokens = text.split(/[\s,;]+/).filter(Boolean);
+  if (!tokens.length) return { error: 'Ingresá al menos una moneda.' };
+  const bad = tokens.find(t => !/^\d+$/.test(t) || +t === 0);
+  if (bad !== undefined) return { error: `"${bad}" no es una moneda válida: tiene que ser un entero positivo.` };
+  const coins = tokens.map(Number);
+  const dup = coins.find((c, i) => coins.indexOf(c) !== i);
+  if (dup !== undefined) return { error: `La moneda ${dup} está repetida.` };
+  return { coins: coins.sort((a, b) => a - b) };
+}
+
+// dp[i] = mínima cantidad de monedas para formar i (∞ si no se puede); elegida[i] = la moneda que lo logra.
+function coinTable(coins, M) {
+  const dp = new Array(M + 1).fill(Infinity);
+  const choice = new Array(M + 1).fill(null);
+  dp[0] = 0;
+  for (let i = 1; i <= M; i++)
+    for (const c of coins)
+      if (c <= i && dp[i - c] + 1 < dp[i]) { dp[i] = dp[i - c] + 1; choice[i] = c; }
+  return { dp, choice };
+}
+// Desde M se resta la moneda elegida hasta llegar a 0; vacío si M no se puede formar.
+function reconstruct(choice, M) {
+  const used = [];
+  for (let k = M; k > 0; k -= choice[k]) {
+    if (!choice[k]) return [];
+    used.push(choice[k]);
+  }
+  return used;
+}
+// Montos por los que pasa la reconstrucción: M, M − c₁, …, 0.
+function pathOf(used, M) {
+  const path = [M];
+  for (const c of used) path.push(M -= c);
+  return path;
+}
+// Greedy: siempre la moneda más grande que entra; null si se traba antes de llegar a M.
+function greedy(coins, M) {
+  const used = [];
+  let rest = M;
+  for (const c of [...coins].sort((a, b) => b - a))
+    while (c <= rest) { used.push(c); rest -= c; }
+  return rest ? null : used;
+}
+
+// ── Pasos precalculados: uno por cada par (i, c), con dp[i] tal como quedó después de probar c (`best`).
+// El modo "Por monto" solo se detiene en los pasos con `summary` (la última moneda de cada i).
+function computeSteps(coins, M, dp, choice) {
+  const steps = [];
+  const initBadge = { icon: '🏗️', text: 'Caso base: dp[0] = 0, el monto 0 se forma sin monedas. El resto arranca en ∞: todavía no se sabe formarlo.', cls: 'bg-secondary' };
+  steps.push({ phase: 'init', i: 0, best: 0, activeLines: LINES.init, badge: initBadge, summary: initBadge });
+  for (let i = 1; i <= M; i++) {
+    let best = Infinity, bestCoin = null;
+    coins.forEach((c, ci) => {
+      let badge, lines = LINES.noImprove;
+      if (c > i) {
+        badge = { icon: '⛔', text: `La moneda ${c} es mayor que ${i}: no se puede usar.`, cls: 'bg-secondary' };
+      } else if (dp[i - c] === Infinity) {
+        badge = { icon: '🚫', text: `dp[${i - c}] = ∞: el resto ${i - c} no se puede formar, así que con la moneda ${c} no se llega a ${i}.`, cls: 'bg-primary' };
+      } else if (dp[i - c] + 1 < best) {
+        badge = { icon: '✅', text: `dp[${i - c}] + 1 = ${dp[i - c] + 1} < ${fmt(best)}: usar la moneda ${c} mejora dp[${i}], que pasa a ${dp[i - c] + 1}.`, cls: 'bg-warning text-dark' };
+        best = dp[i - c] + 1; bestCoin = c; lines = LINES.improve;
+      } else {
+        badge = { icon: '↩️', text: `dp[${i - c}] + 1 = ${dp[i - c] + 1} ≥ ${best}: la moneda ${c} no mejora dp[${i}], se descarta.`, cls: 'bg-primary' };
+      }
+      steps.push({ phase: 'coin', i, c, ci, best, bestCoin, last: ci === coins.length - 1, activeLines: lines, badge });
+    });
+    steps[steps.length - 1].summary = best === Infinity
+      ? { icon: '📊', text: `dp[${i}] = ∞: ninguna moneda deja un resto que se pueda formar.`, cls: 'bg-secondary' }
+      : { icon: '📊', text: `dp[${i}] = ${best}: lo mejor es usar la moneda ${bestCoin} y formar el resto ${i - bestCoin} con dp[${i - bestCoin}] = ${dp[i - bestCoin]} moneda${dp[i - bestCoin] === 1 ? '' : 's'}.`, cls: 'bg-secondary' };
+  }
+  const used = reconstruct(choice, M);
+  const endBadge = used.length
+    ? { icon: '🏁', text: `dp[${M}] = ${dp[M]}. Para saber cuáles, se vuelve desde ${M} restando la moneda elegida: ${pathOf(used, M).join(' → ')}, o sea ${M} = ${used.join(' + ')}.`, cls: 'bg-success' }
+    : { icon: '🏁', text: `dp[${M}] = ∞: ninguna combinación de las monedas forma ${M}.`, cls: 'bg-danger' };
+  // "Por monto" termina en el resumen del último monto (con el cierre agregado); "por moneda" tiene un paso más para el cierre.
+  const last = steps[steps.length - 1];
+  last.summary = { icon: endBadge.icon, text: `${last.summary.text} ${endBadge.text}`, cls: endBadge.cls };
+  steps.push({ phase: 'end', i: M + 1, last: true, activeLines: LINES.end, badge: endBadge });
+  return steps;
+}
+
+// Fórmulas del panel de explicación: cada término lleva la misma clase que su celda en el arreglo
+// (\htmlClass necesita `trust`, solo para ese comando; `strict: 'ignore'` calla el aviso de extensión HTML).
+const KATEX_OPTS = { throwOnError: false, trust: ctx => ctx.command === '\\htmlClass', strict: 'ignore' };
+function box(cls, t) { return cls ? `\\htmlClass{${cls}}{${t}}` : t; }
+
+// Fórmula LaTeX → HTML, para v-html (renderToString: las celdas salen de un v-for, sin id ni nextTick).
+function tex(s) { return katex.renderToString(s, { throwOnError: false }); }
+// Texto con fórmulas entre $…$: los tramos impares son LaTeX, el resto texto plano (escapado).
+function texInline(s) {
+  return s.split('$').map((t, i) => i % 2 ? tex(t) : t.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('');
+}
+// Explicación de la complejidad (card desplegable): cada fila es [línea del pseudocódigo, veces que se ejecuta, costo total]; veces, costo y total en LaTeX.
+const COMPLEXITY = {
+  total: "O(M \\cdot k)",
+  headers: ["Línea", "Veces", "Costo"],
+  rows: [
+    ["dp = arreglo[0..M], elegida = arreglo[1..M]", "1", "O(M)"],
+    ["dp[0] = 0; PARA i …: dp[i] = ∞", "M + 1", "O(M)"],
+    ["PARA i DESDE 1 HASTA M / PARA CADA c EN monedas", "M \\cdot k", "O(M \\cdot k)"],
+    ["SI c ≤ i Y dp[i-c] + 1 < dp[i] … elegida[i] = c", "M \\cdot k \\text{, cada una } O(1)", "O(M \\cdot k)"],
+    ["(Reconstruir desde M restando elegida[i])", "dp[M] \\le M", "O(M)"],
+  ],
+  note: "Cada monto prueba las $k$ monedas mirando una celda ya calculada: $O(k)$ por celda, $O(M \\cdot k)$ en total, y $O(M)$ de memoria. Es pseudopolinomial: depende del valor de $M$, no de cuántos dígitos tiene. Greedy es mucho más barato, pero solo da el óptimo con sistemas de monedas «canónicos» como {1, 5, 10, 25}.",
+};
+
+// Auto-chequeo con valores calculados a mano.
+(function selfCheck() {
+  const a = coinTable([1, 3, 4], 6);
+  console.assert(a.dp.join(' ') === '0 1 2 1 1 2 2', 'Monedas: dp de {1, 3, 4} hasta 6');
+  console.assert(reconstruct(a.choice, 6).join('+') === '3+3', 'Monedas: 6 = 3 + 3');
+  console.assert(greedy([1, 3, 4], 6).join('+') === '4+1+1', 'Monedas: greedy da 4 + 1 + 1');
+  console.assert(computeSteps([1, 3, 4], 6, a.dp, a.choice).length === 1 + 6 * 3 + 1, 'Monedas: un paso por (i, c) + inicio + fin');
+  const b = coinTable([2], 3);
+  console.assert(b.dp[3] === Infinity && reconstruct(b.choice, 3).length === 0 && greedy([2], 3) === null, 'Monedas: {2} no forma 3');
+  const c = coinTable([1, 5, 10, 25], 30);
+  console.assert(c.dp[30] === 2 && greedy([1, 5, 10, 25], 30).length === 2, 'Monedas: 30 = 25 + 5, greedy acierta');
+  console.assert(coinTable([3, 5], 9).dp[9] === 3 && greedy([3, 5], 9) === null, 'Monedas: {3, 5}: 9 = 3 + 3 + 3, greedy se traba');
+})();
+
+createApp({
+  setup() {
+    const STORAGE_KEY = 'pa-tools-dp-coin-change';
+    const DEFAULTS = { coinsText: EXAMPLES[0].coinsText, amount: EXAMPLES[0].amount, granularity: 'coin' };
+
+    const coinsText = ref(DEFAULTS.coinsText);
+    const amount = ref(DEFAULTS.amount);
+    const granularity = ref(DEFAULTS.granularity);
+    const inputError = ref('');
+
+    // Datos con los que se resolvió (los inputs pueden cambiar sin volver a resolver).
+    const solvedCoins = ref([]), solvedM = ref(0);
+    const dpArr = ref([]), choice = ref([]);
+    const selected = ref(null);
+
+    // ── DP ──
+    function solve() {
+      const { coins, error } = parseCoins(coinsText.value);
+      const M = amount.value;
+      inputError.value = error || (Number.isInteger(M) && M >= 1 && M <= MAX_AMOUNT ? '' : `El monto tiene que ser un entero entre 1 y ${MAX_AMOUNT}.`);
+      if (inputError.value) return;
+      selected.value = null;
+      const t = coinTable(coins, M);
+      solvedCoins.value = coins; solvedM.value = M;
+      dpArr.value = t.dp; choice.value = t.choice;
+      steps.value = computeSteps(coins, M, t.dp, t.choice);
+      stopAutoplay();
+      goToStep(0); // arranca solo con el caso base, para no develar el resultado
+    }
+    function loadExample(idx) {
+      const ex = EXAMPLES[idx];
+      if (!ex) return;
+      coinsText.value = ex.coinsText;
+      amount.value = ex.amount;
+      solve();
+    }
+
+    // ── Paso a paso: un puntero sobre los pasos precalculados ──
+    const steps = ref([]);
+    const currentStepIndex = ref(0);
+    const isPlaying = ref(false);
+    const speedMs = ref(700);
+    let playTimer = null;
+
+    const currentStep = computed(() => steps.value[currentStepIndex.value] || null);
+    const amountEnds = computed(() => steps.value.flatMap((s, idx) => s.summary ? [idx] : []));
+    const isAtStart = computed(() => currentStepIndex.value <= (granularity.value === 'amount' ? amountEnds.value[0] ?? 0 : 0));
+    const isAtEnd = computed(() => currentStepIndex.value >= (granularity.value === 'amount' ? amountEnds.value.at(-1) ?? 0 : steps.value.length - 1));
+    const stepBadge = computed(() => (granularity.value === 'amount' && currentStep.value.summary) || currentStep.value.badge);
+    // En "Por monto", la última moneda representa a todas: se resalta el bloque entero.
+    const activeLines = computed(() => {
+      const s = currentStep.value;
+      if (!s) return [];
+      return granularity.value === 'amount' && s.summary && s.phase === 'coin' ? LINES.amount : s.activeLines;
+    });
+    const progressText = computed(() => granularity.value === 'amount'
+      ? `Monto ${Math.min(currentStep.value.i, solvedM.value)} de ${solvedM.value}`
+      : `Paso ${currentStepIndex.value + 1} de ${steps.value.length}`);
+
+    // dp[k] ya tiene su valor final: es un monto anterior al del paso, o el del paso ya probó todas las monedas.
+    function isClosed(k) {
+      const s = currentStep.value;
+      return k === 0 || k < s.i || (k === s.i && s.last);
+    }
+    // Valor que se ve en la caja k: el final, el parcial del monto en curso o el ∞ inicial.
+    function valueAt(k) {
+      const s = currentStep.value;
+      if (k === 0) return 0;
+      if (k < s.i) return dpArr.value[k];
+      return k === s.i ? s.best : Infinity;
+    }
+    function markOf(k) {
+      const s = currentStep.value;
+      const c = isClosed(k) ? choice.value[k] : k === s.i ? s.bestCoin : null;
+      return k && c ? `+${c}` : '';
+    }
+    const isComplete = computed(() => isClosed(solvedM.value));
+    const solution = computed(() => reconstruct(choice.value, solvedM.value));
+    const greedyCoins = computed(() => greedy(solvedCoins.value, solvedM.value));
+    const pathCells = computed(() => new Set(isComplete.value && solution.value.length ? pathOf(solution.value, solvedM.value) : []));
+
+    // El monto en foco: el clickeado o el que calcula el paso. `evaluated` son las monedas ya probadas,
+    // `current` la del paso (solo en "Por moneda") y `value` el dp[i] hasta ahí.
+    const focus = computed(() => {
+      const s = currentStep.value;
+      if (!s) return null;
+      if (selected.value !== null) {
+        const k = selected.value;
+        if (!isClosed(k)) return { i: k, pending: true, evaluated: [] };
+        return { i: k, evaluated: k ? solvedCoins.value : [], bestCoin: choice.value[k], current: null, value: dpArr.value[k], done: true };
+      }
+      if (s.phase !== 'coin') return null;
+      return {
+        i: s.i, evaluated: solvedCoins.value.slice(0, s.ci + 1), bestCoin: s.bestCoin,
+        current: granularity.value === 'coin' ? s.c : null, value: s.best, done: s.last,
+      };
+    });
+    // Clase de la celda dp[i − c] según la moneda c que la consulta.
+    function depClass(c) {
+      const f = focus.value;
+      if (!f.evaluated.includes(c)) return '';
+      if (c === f.current) return 'cell-dep-current';
+      return c === f.bestCoin ? 'cell-dep-best' : 'cell-dep-other';
+    }
+
+    function goToStep(i) {
+      currentStepIndex.value = Math.max(0, Math.min(steps.value.length - 1, i));
+      refresh();
+    }
+    function refresh() { nextTick(renderExplanation); }
+    function stepForward() {
+      if (isAtEnd.value) { stopAutoplay(); return; }
+      const i = currentStepIndex.value;
+      goToStep(granularity.value === 'amount' ? amountEnds.value.find(x => x > i) : i + 1);
+    }
+    function stepBackward() {
+      const i = currentStepIndex.value;
+      goToStep(granularity.value === 'amount' ? [...amountEnds.value].reverse().find(x => x < i) ?? 0 : i - 1);
+    }
+    function restartAnimation() { stopAutoplay(); goToStep(granularity.value === 'amount' ? amountEnds.value[0] : 0); }
+    function stopAutoplay() {
+      isPlaying.value = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    }
+    function togglePlay() {
+      if (isPlaying.value) { stopAutoplay(); return; }
+      if (isAtEnd.value) restartAnimation();
+      isPlaying.value = true;
+      playTimer = setInterval(() => {
+        if (isAtEnd.value) { stopAutoplay(); return; }
+        stepForward();
+      }, speedMs.value);
+    }
+    function setGranularity(g) {
+      granularity.value = g;
+      // Al pasar a "por monto" se completa el monto en curso.
+      if (g === 'amount') goToStep(amountEnds.value.find(x => x >= currentStepIndex.value) ?? amountEnds.value.at(-1));
+      else refresh();
+    }
+    function onKeyDown(e) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'Escape' && selected.value !== null) clearSelection();
+      if (!steps.value.length) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); stepBackward(); }
+    }
+    onMounted(() => window.addEventListener('keydown', onKeyDown));
+    onBeforeUnmount(() => { window.removeEventListener('keydown', onKeyDown); stopAutoplay(); });
+
+    // ── Celdas ──
+    function cellClass(k) {
+      const cls = pathCells.value.has(k) ? ['cell-path'] : [];
+      const f = focus.value;
+      if (!f) return cls;
+      if (k === f.i) cls.push('cell-selected');
+      else if (f.i - k > 0 && solvedCoins.value.includes(f.i - k)) cls.push(depClass(f.i - k));
+      return cls;
+    }
+    function selectCell(k) {
+      selected.value = selected.value === k ? null : k;
+      refresh();
+    }
+    function clearSelection() { selected.value = null; refresh(); }
+
+    function renderExplanation() {
+      const f = focus.value;
+      const fBox = document.getElementById('formula-box');
+      const sBox = document.getElementById('subst-box');
+      if (!f || !fBox || !sBox) return;
+      const i = f.i, dp = dpArr.value;
+      const sel = box('cell-selected', `dp[${i}]`);
+      const usable = solvedCoins.value.filter(c => c <= i);
+      const line = (parent, src, opts = KATEX_OPTS, cls = 'mb-1') => {
+        const el = document.createElement('div');
+        el.className = cls;
+        katex.render(src, el, opts);
+        parent.appendChild(el);
+      };
+      const note = (parent, text) => {
+        const p = document.createElement('div');
+        p.className = 'small text-muted mb-2';
+        p.textContent = text;
+        parent.appendChild(p);
+      };
+
+      fBox.innerHTML = '';
+      sBox.innerHTML = '';
+      if (i === 0) {
+        line(fBox, `${sel} = 0 \\quad \\text{(caso base)}`, { ...KATEX_OPTS, displayMode: true });
+        note(sBox, 'Caso base: el monto 0 se forma sin monedas.');
+        return;
+      }
+      note(fBox, `i = ${i}, monedas {${solvedCoins.value.join(', ')}}`);
+      line(fBox, `dp[i] = \\min_{c \\,\\in\\, \\text{monedas},\\ c \\,\\le\\, i} \\big( dp[i-c] + 1 \\big)`, { ...KATEX_OPTS, displayMode: true });
+      line(fBox, usable.length
+        ? `${sel} = \\min\\big(${usable.map(c => `${box(depClass(c), `dp[${i - c}]`)} + 1`).join(',\\ ')}\\big)`
+        : `${sel} = \\infty \\quad \\text{(ninguna moneda es} \\le ${i}\\text{)}`, { ...KATEX_OPTS, displayMode: true });
+
+      if (f.pending) {
+        note(sBox, `Este monto todavía no se calculó: seguí avanzando hasta llegar a dp[${i}].`);
+        return;
+      }
+      const cands = [];
+      for (const c of f.evaluated) {
+        if (c > i) { line(sBox, `c = ${c} > ${i}:\\ \\text{no se puede usar}`); continue; }
+        const v = dp[i - c] + 1;
+        cands.push(fmtTex(v));
+        const d = box(depClass(c), `dp[${i - c}]`);
+        line(sBox, `c = ${c}:\\ ${d} + 1 = ${box(depClass(c), fmtTex(dp[i - c]))} + 1 = ${fmtTex(v)}${c === f.bestCoin ? '\\ \\checkmark' : ''}`);
+      }
+      const hr = document.createElement('hr'); hr.className = 'my-2';
+      sBox.appendChild(hr);
+      const min = cands.length ? `\\min(${cands.join(',\\ ')}) = ` : '';
+      line(sBox, `${sel} = ${min}${f.done ? `\\mathbf{${fmtTex(f.value)}}` : `${fmtTex(f.value)} \\quad \\text{(por ahora)}`}`, KATEX_OPTS, '');
+    }
+
+    // Resumen de cómo se obtuvo el monto clickeado.
+    const verdict = computed(() => {
+      const f = focus.value;
+      if (selected.value === null || !f || f.pending) return null;
+      if (f.i === 0) return { cls: 'bg-secondary', icon: '⬜', text: 'Caso base' };
+      if (f.value === Infinity) return { cls: 'bg-danger', icon: '🚫', text: `Ninguna moneda llega a ${f.i} → ∞` };
+      return { cls: 'bg-warning text-dark', icon: '✅', text: `Gana la moneda ${f.bestCoin} → dp[${f.i - f.bestCoin}] + 1` };
+    });
+
+    // ── Tema claro/oscuro ──
+    const isDark = ref(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      const theme = isDark.value ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+    }
+
+    // ── Persistencia (autoguardado) + compartir por URL (#d=...) ──
+    function currentState() { return { coinsText: coinsText.value, amount: amount.value, granularity: granularity.value }; }
+    function applyState(data) {
+      coinsText.value = data.coinsText ?? coinsText.value;
+      amount.value = data.amount ?? amount.value;
+      granularity.value = data.granularity ?? granularity.value;
+    }
+    function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState())); }
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        applyState(JSON.parse(raw));
+      } catch (e) { /* datos corruptos: arrancar con los valores por defecto */ }
+    }
+    function encodeState(data) { return encodeURIComponent(JSON.stringify(data)); }
+    function decodeState(str) { return JSON.parse(decodeURIComponent(str)); }
+    function loadInitialState() {
+      if (location.hash.startsWith('#d=')) {
+        try {
+          applyState(decodeState(location.hash.slice(3)));
+          history.replaceState(null, '', location.pathname + location.search);
+          persist();
+          return;
+        } catch (e) { console.error('No se pudo leer la configuración de la URL:', e); }
+      }
+      loadFromStorage();
+    }
+
+    const shareCopied = ref(false);
+    function shareCurrentState() {
+      const url = `${location.origin}${location.pathname}#d=${encodeState(currentState())}`;
+      const onCopied = () => { shareCopied.value = true; setTimeout(() => { shareCopied.value = false; }, 2000); };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(onCopied).catch(() => window.prompt('Copiá el link:', url));
+      } else {
+        window.prompt('Copiá el link:', url);
+      }
+    }
+
+    // ── "Nuevo": volver a los valores de ejemplo ──
+    const newConfirm = ref(false);
+    function handleNewClick() {
+      if (newConfirm.value) { resetToDefault(); return; }
+      newConfirm.value = true;
+      setTimeout(() => { if (newConfirm.value) newConfirm.value = false; }, 3000);
+    }
+    function resetToDefault() {
+      applyState(DEFAULTS);
+      newConfirm.value = false;
+      solve();
+    }
+
+    loadInitialState();
+    watch([coinsText, amount, granularity], persist);
+    nextTick(solve);
+
+    return {
+      complexity: COMPLEXITY, tex, texInline, fmt, PSEUDOCODE, EXAMPLES, MAX_AMOUNT,
+      coinsText, amount, inputError, solvedCoins, solvedM, dpArr, selected, focus,
+      solution, greedyCoins, isComplete, valueAt, markOf,
+      solve, loadExample, selectCell, clearSelection, cellClass, verdict,
+      steps, currentStep, granularity, setGranularity, activeLines, stepBadge, progressText,
+      isAtStart, isAtEnd, isPlaying, speedMs, togglePlay, stepForward, stepBackward, restartAnimation,
+      isDark, toggleTheme,
+      shareCopied, shareCurrentState,
+      newConfirm, handleNewClick,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

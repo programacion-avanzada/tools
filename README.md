@@ -182,10 +182,13 @@ El viajante (TSP) es de minimización: el mismo pseudocódigo con `mejor ← +�
 | [`dp/lcs.html`](dp/lcs.html) | Subsecuencia Común más Larga (LCS) | O(m·n) |
 | [`dp/edit-distance.html`](dp/edit-distance.html) | Distancia de Edición (Levenshtein) | O(m·n) |
 | [`dp/fibonacci.html`](dp/fibonacci.html) | Fibonacci: recursivo ingenuo, top-down (memoización), bottom-up (tabulación) y con 2 variables | O(2ⁿ) / O(n) |
+| [`dp/coin-change.html`](dp/coin-change.html) | Cambio de monedas (mínima cantidad) | O(M·k) |
 
 `dp/fibonacci.html` compara cuatro formas de calcular fib(n): el árbol de llamadas del ingenuo creciendo en orden DFS (un color por k; clic en un nodo resalta todas sus repeticiones; también como lista, como el comando `tree`), el call stack al lado, la memoización con su tabla y los cache hits (con el árbol ingenuo "fantasma" en gris para ver lo que se evitó), y el arreglo dp llenándose de izquierda a derecha, o solo con prev/curr. Abajo, una tabla compara llamadas, sumas, stack depth y memoria de los cuatro.
 
-Mochila, LCS y Distancia de edición permiten:
+`dp/coin-change.html` llena el arreglo dp[0..M] (arranca en ∞ salvo dp[0] = 0) probando una moneda por paso, o un monto entero por paso: la celda dp[i − c] de la moneda que se prueba, la ganadora y las descartadas, cada una con su color. Al final, el camino de la reconstrucción (6 = 3 + 3) y lo que hubiera dado greedy. Trae ejemplos donde greedy falla, acierta, se traba, y uno sin solución (dp[M] = ∞).
+
+Mochila, LCS, Distancia de edición y Cambio de monedas permiten:
 - Editar los datos de entrada (cadenas, capacidad, elementos, costos) y aplicarlos con "▶ Aplicar".
 - Llenar la tabla de PD paso a paso (⏮ ⏪ ▶️ ⏩, velocidad ajustable y flechas ← →), celda por celda o fila por fila, con el pseudocódigo con la línea actual resaltada. Al abrir y al aplicar arranca con solo los casos base, para no develar el resultado: las celdas pendientes quedan vacías y el resultado aparece al llenar la última. En la mochila se ve también la fila 0 (ningún elemento).
 - Hacer clic en cualquier celda para ver la fórmula de recurrencia y la sustitución numérica que produjo ese valor, con las celdas de las que depende resaltadas por color y los mismos colores en los términos de la fórmula. Mientras se recorre, la explicación sigue a la celda del paso; un clic la fija y Esc la suelta.
