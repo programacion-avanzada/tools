@@ -59,6 +59,9 @@
     .bn-text { font-family: Consolas, monospace; font-size: 12px; fill: var(--bs-body-color); }
     .bn-order circle { fill: var(--bs-body-bg); stroke: var(--bs-secondary-color); }
     .bn-order text { font-size: 11px; font-weight: 600; fill: var(--bs-body-color); }
+    /* Fantasma: hijo infactible que se generó pero nunca entró a pendientes */
+    .bn-ghost { opacity: .6; }
+    .bn-ghost .bn-box { fill: none; stroke-dasharray: 2 3; }
     .bn-mark text { font-size: 11px; font-weight: 700; }
     .bn-mark.infeasible circle { fill: var(--bs-emphasis-color); }
     .bn-mark.infeasible text { fill: var(--bs-body-bg); }
@@ -71,6 +74,7 @@
     .legend-box.current { background: var(--bs-warning-bg-subtle); border: 2px solid var(--bs-warning); }
     .legend-box.best { background: var(--bs-success-bg-subtle); border: 2px solid var(--bs-success); }
     .legend-box.pinned { border: 2px solid var(--bs-purple); }
+    .legend-box.ghost { background: none; border: 1px dotted var(--bs-secondary-color); }
 
     /* Matriz con la cota del nodo en foco (como la diapositiva) */
     .mx td, .mx th { width: 2.4em; text-align: center; padding: .15rem; font-family: Consolas, monospace; }
@@ -307,7 +311,7 @@
                 <tr><td class="font-monospace">EsFactible(nodo)</td><td>todas las aristas del camino (y del tour, en una hoja) existen</td></tr>
                 <tr><td class="font-monospace">EsSolucion(nodo)</td><td>es una hoja: un tour completo</td></tr>
                 <tr><td class="font-monospace">Valor(nodo)</td><td>la longitud del tour</td></tr>
-                <tr><td class="font-monospace">Cota(nodo)</td><td>costo del camino + el mínimo de cada fila que todavía tiene que salir, sin volver a entrar a un vértice del camino y sin que el último vuelva a v1 antes de tiempo (∞ si es infactible; en una hoja, la longitud del tour)</td></tr>
+                <tr><td class="font-monospace">Cota(nodo)</td><td>costo del camino + el mínimo de cada fila que todavía tiene que salir, sin volver a entrar a un vértice del camino y sin que el último vuelva a v1 antes de tiempo (en una hoja, la longitud del tour; ∞ si a un vértice no le queda ninguna arista posible)</td></tr>
               </tbody>
             </table>
           </div>
@@ -349,7 +353,7 @@
             <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box best"></span> Mejor solución hasta ahora (★)</li>
             <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box pinned"></span> Nodo fijado con un clic (o en su paso de la tabla): su cota en la matriz y su paso resaltado</li>
             <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill border text-body">3</span> Paso en que salió de pendientes</li>
-            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-dark">✗</span> Infactible (usa una arista que no existe)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box ghost"></span><span class="badge rounded-pill text-bg-dark">✗</span> Infactible (usa una arista que no existe): se genera, pero no entra a pendientes</li>
             <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill bg-danger-subtle text-danger-emphasis border border-danger">✂</span> Poda por cota (cota ≥ mejor)</li>
           </ul>
         </div>
@@ -374,7 +378,8 @@ const DEFAULT_STATE = {
   strategy: 'best', greedy: true,
 };
 
-// Lo único que cambia entre estrategias es la estructura de pendientes (líneas 0, 2 y 4 del pseudocódigo).
+// Lo único que cambia entre estrategias es la estructura de pendientes. Solo la cola de prioridad
+// guarda la cota al insertar; FIFO y LIFO la calculan recién al chequear.
 // Es la versión de minimización: +∞, ExtraerMenorCota, ≥ y <.
 const STRATEGIES = {
   best: { name: 'Best-First', fn: 'BestFirst', init: 'ColaDePrioridad', take: 'ExtraerMenorCota', struct: 'cola de prioridad' },
@@ -383,20 +388,22 @@ const STRATEGIES = {
 };
 function pseudocodeFor(strategy, greedy) {
   const s = STRATEGIES[strategy];
+  const pq = strategy === 'best';
   return [
     `ALGORITMO BranchAndBound_${s.fn}(raíz)`,
     greedy ? '  (mejor, mejorSolucion) ← TourGreedy(v1)' : '  mejor ← +∞',
-    `  pendientes ← ${s.init} con raíz`,
+    `  pendientes ← ${s.init} vacía`,
+    `  Insertar(pendientes, raíz${pq ? ', Cota(raíz)' : ''})`,
     '  MIENTRAS pendientes no esté vacía HACER',
-    `    nodo ← ${s.take}(pendientes)`,
-    '',
-    '    SI NO EsFactible(nodo) O Cota(nodo) ≥ mejor ENTONCES',
+    `    ${pq ? '(nodo, cota)' : 'nodo'} ← ${s.take}(pendientes)`,
+    `    SI ${pq ? 'cota' : 'Cota(nodo)'} ≥ mejor ENTONCES`,
     '      CONTINUAR',
     '    SI EsSolucion(nodo) Y Valor(nodo) < mejor ENTONCES',
     '      mejor ← Valor(nodo)',
     '      mejorSolucion ← nodo',
     '    PARA CADA hijo EN HijosDe(nodo) HACER',
-    '      Insertar(pendientes, hijo)',
+    '      SI EsFactible(hijo) ENTONCES',
+    `        Insertar(pendientes, hijo${pq ? ', Cota(hijo)' : ''})`,
     '  RETORNAR mejorSolucion',
   ];
 }
@@ -451,8 +458,9 @@ function greedyTour(M) {
   return { tour: [...tour, 0], len: len + weight(M, last, 0) };
 }
 
-// ── Corre el algoritmo una vez (versión corta: los hijos entran siempre a pendientes y se filtran al salir)
-// y devuelve todos los nodos generados más un snapshot por punto de parada.
+// ── Corre el algoritmo una vez y devuelve todos los nodos generados más un snapshot por punto de parada.
+// Un hijo infactible se genera pero no entra a pendientes (queda como fantasma, sin cota),
+// así que de pendientes nunca sale un infactible.
 function computeSteps(M, strategy, useGreedy) {
   const n = M.length;
   const nodes = [];
@@ -469,7 +477,7 @@ function computeSteps(M, strategy, useGreedy) {
     const missing = edges.find(([a, b]) => weight(M, a, b) === Infinity) || null;
     const pathCost = path.slice(1).reduce((s, b, k) => s + weight(M, path[k], b), 0);
     const node = { id: nodes.length, parent: parent ? parent.id : null, v, path, depth: path.length - 1, leaf, tour, edges, missing,
-      feasible: !missing, cost: pathCost, bound: Infinity, terms: [], calc: '' };
+      feasible: !missing, cost: pathCost, bound: null, terms: [], calc: '' };
     const fixed = edges.map(([a, b]) => fmtNum(weight(M, a, b)));
     if (missing) {
       node.calc = `infactible: no hay arista ${missing[0] + 1}→${missing[1] + 1}`;
@@ -481,7 +489,8 @@ function computeSteps(M, strategy, useGreedy) {
       node.calc = `cota = ${fixed.join(' + ') || '0'} + (${node.terms.map(t => fmtNum(t.w)).join(' + ')}) = ${fmtNum(node.bound)}`;
     }
     node.label = fmtPath(leaf ? tour : path);
-    node.detail = leaf ? `long ${fmtNum(node.bound)}` : `${fmtNum(pathCost)} / ${fmtNum(node.bound)}`;
+    const shown = missing ? '—' : fmtNum(node.bound);
+    node.detail = leaf ? `long ${shown}` : `${fmtNum(pathCost)} / ${shown}`;
     nodes.push(node);
     return node;
   }
@@ -499,7 +508,7 @@ function computeSteps(M, strategy, useGreedy) {
   function pendingInOrder() {
     if (strategy === 'fifo') return pending.map(p => p.id);
     if (strategy === 'lifo') return pending.map(p => p.id).reverse();
-    const cmp = (a, b) => a === b ? 0 : a < b ? -1 : 1; // sin restar: ∞ − ∞ = NaN
+    const cmp = (a, b) => a === b ? 0 : a < b ? -1 : 1; // sin restar: ∞ − ∞ = NaN (un factible sin salida tiene cota ∞)
     return pending.map((p, i) => ({ p, i })).sort((a, b) => cmp(a.p.bound, b.p.bound) || a.i - b.i).map(x => x.p.id);
   }
 
@@ -526,7 +535,7 @@ function computeSteps(M, strategy, useGreedy) {
   const root = makeNode(null, 0);
   pending.push(root);
   status[root.id] = 'pending';
-  snapshot([2], { icon: '🌱', text: `La raíz [1] (el tour sale de v1) entra a pendientes. Cada vértice tiene que salir una vez, así que la cota suma el mínimo de cada fila: ${root.calc}.`, cls: 'bg-primary' });
+  snapshot([2, 3], { icon: '🌱', text: `La raíz [1] (el tour sale de v1) entra a pendientes. Cada vértice tiene que salir una vez, así que la cota suma el mínimo de cada fila: ${root.calc}.`, cls: 'bg-primary' });
 
   let k = 0, cutNoted = false;
   while (pending.length) {
@@ -541,15 +550,8 @@ function computeSteps(M, strategy, useGreedy) {
     const why = strategy === 'best' ? `Es el de menor cota en pendientes${tie ? ' (empata con otro: sale el que entró primero)' : ''}.`
       : strategy === 'fifo' ? 'Es el que entró primero a la cola.' : 'Es el último que entró a la pila.';
     const desc = node.leaf ? `un tour de longitud ${fmtNum(bound)}` : `costo ${fmtNum(node.cost)} y cota ${fmtNum(bound)}`;
-    snapshot([3, 4], { icon: '📤', text: `Paso ${k}: sale ${label}, ${desc}. ${why}`, cls: 'bg-warning text-dark' });
+    snapshot([4, 5], { icon: '📤', text: `Paso ${k}: sale ${label}, ${desc}. ${why}`, cls: 'bg-warning text-dark' });
 
-    if (!node.feasible) {
-      status[node.id] = 'infeasible';
-      const [a, b] = node.missing;
-      row.what = `infactible: no hay arista ${a + 1}→${b + 1}`;
-      snapshot([6, 7], { icon: '✗', text: `${label} es infactible: no hay arista v${a + 1}→v${b + 1}. Se descarta (CONTINUAR) sin generar sus hijos. Entró a pendientes igual porque recién se chequea al salir.`, cls: 'bg-dark' });
-      continue;
-    }
     if (bound >= best) {
       status[node.id] = 'pruned';
       row.what = `poda: ${node.leaf ? 'long' : 'cota'} ${fmtNum(bound)} ≥ ${fmtBest(best)}`;
@@ -569,7 +571,7 @@ function computeSteps(M, strategy, useGreedy) {
       snapshot([6, 7], { icon: '✂', text, cls: 'bg-danger' });
       continue;
     }
-    snapshot([6], { icon: '✔️', text: `${label} es factible y su cota ${bound} < mejor = ${fmtBest(best)}: puede llevar a un tour mejor, se sigue.`, cls: 'bg-info text-dark' });
+    snapshot([6], { icon: '✔️', text: `Su cota ${bound} < mejor = ${fmtBest(best)}: puede llevar a un tour mejor, se sigue.`, cls: 'bg-info text-dark' });
 
     if (node.leaf) {
       const prev = best;
@@ -586,37 +588,46 @@ function computeSteps(M, strategy, useGreedy) {
     snapshot([8], { icon: '➖', text: `${label} todavía no es un tour completo (faltan ${n - node.path.length} vértices): no es solución, no se compara con mejor.`, cls: 'bg-secondary' });
 
     const last = node.path[node.path.length - 1];
-    const inserts = [];
-    for (let v = 0; v < n; v++) {
-      if (node.path.includes(v)) continue;
-      const child = makeNode(node, v);
-      pending.push(child);
-      status[child.id] = 'pending';
+    const children = [...Array(n).keys()].filter(v => !node.path.includes(v)).map(v => makeNode(node, v));
+    const lastIn = children.filter(c => c.feasible).at(-1);
+    const inserts = [], discards = [];
+    const whatHappened = () => [
+      discards.length ? `descarta ${discards.join(', ')} (infactible${discards.length > 1 ? 's' : ''})` : '',
+      inserts.length ? `inserta ${inserts.join(', ')}` : '',
+    ].filter(Boolean).join('; ');
+    for (const child of children) {
       inserted = child.id;
-      inserts.push(child.label);
-      row.what = `inserta ${inserts.join(', ')}`;
-      let text = `Va de v${last + 1} a v${v + 1}: ${child.label}`;
+      let text = `Va de v${last + 1} a v${child.v + 1}: ${child.label}`;
       if (!child.feasible) {
         const [a, b] = child.missing;
-        text += ` usa la arista v${a + 1}→v${b + 1}, que no existe: infactible, cota ∞. Igual entra a pendientes; se descarta recién al salir.`;
-      } else if (child.leaf) {
+        status[child.id] = 'infeasible';
+        discards.push(child.label);
+        row.what = whatHappened();
+        snapshot([11, 12], { icon: '✗', text: `${text} usa la arista v${a + 1}→v${b + 1}, que no existe: infactible. No entra a pendientes: queda como fantasma, sin cota y sin hijos.`, cls: 'bg-dark' });
+        continue;
+      }
+      pending.push(child);
+      status[child.id] = 'pending';
+      inserts.push(child.label);
+      row.what = whatHappened();
+      if (child.leaf) {
         text += `. Quedan ${n - 1} vértices fijados, así que el tour se completa solo: ${child.calc}.`;
       } else {
         text += `, ${child.calc}.`;
       }
-      if (strategy === 'lifo' && inserts.length === n - node.path.length) text += ' Con la pila, este (el último que entró) es el próximo en salir.';
-      snapshot([11, 12], { icon: '📥', text, cls: 'bg-primary' });
+      if (strategy === 'lifo' && child === lastIn) text += ' Con la pila, este (el último que entró) es el próximo en salir.';
+      snapshot([11, 12, 13], { icon: '📥', text, cls: 'bg-primary' });
     }
   }
 
   current = null;
   inserted = null;
-  snapshot([3], { icon: '🛑', text: `pendientes quedó vacía: se generaron ${nodes.length} de ${maxNodesFor(n)} nodos posibles.`, cls: 'bg-secondary' });
+  snapshot([4], { icon: '🛑', text: `pendientes quedó vacía: se generaron ${nodes.length} de ${maxNodesFor(n)} nodos posibles.`, cls: 'bg-secondary' });
   if (bestTour) {
     const fromGreedy = bestId === null ? ' Es el tour greedy: ningún nodo del árbol lo mejoró.' : '';
-    snapshot([13], { icon: '🏁', text: `Retorna mejorSolucion = ${fmtTour(bestTour)}, de longitud ${best}.${fromGreedy}`, cls: 'bg-success' });
+    snapshot([14], { icon: '🏁', text: `Retorna mejorSolucion = ${fmtTour(bestTour)}, de longitud ${best}.${fromGreedy}`, cls: 'bg-success' });
   } else {
-    snapshot([13], { icon: '🏁', text: 'No hay ningún tour: el grafo no tiene un ciclo que pase una vez por cada vértice.', cls: 'bg-danger' });
+    snapshot([14], { icon: '🏁', text: 'No hay ningún tour: el grafo no tiene un ciclo que pase una vez por cada vértice.', cls: 'bg-danger' });
   }
   return { nodes, steps };
 }
@@ -682,12 +693,12 @@ const COMPLEXITY = {
   total: "O(n^2 \\cdot (n-1)!)",
   headers: ["Línea", "Veces", "Costo"],
   rows: [
-    ["(mejor, mejorSolucion) ← TourGreedy(v1); pendientes ← … con raíz", "1", "O(n^2)"],
+    ["(mejor, mejorSolucion) ← TourGreedy(v1); pendientes ← …; Insertar(raíz)", "1", "O(n^2)"],
     ["MIENTRAS pendientes no esté vacía", "\\le N + 1", "O(N)"],
-    ["nodo ← ExtraerMenorCota(pendientes)", "\\le N", "O(N \\log N)"],
-    ["SI NO EsFactible(nodo) O Cota(nodo) ≥ mejor", "\\le N", "O(N)"],
+    ["(nodo, cota) ← ExtraerMenorCota(pendientes)", "\\le N", "O(N \\log N)"],
+    ["SI cota ≥ mejor", "\\le N", "O(N)"],
     ["SI EsSolucion(nodo) Y Valor(nodo) < mejor", "\\le N", "O(N)"],
-    ["PARA CADA hijo EN HijosDe(nodo): Insertar (con su cota)", "\\le N - 1", "O(N \\cdot n^2)"],
+    ["PARA CADA hijo: SI EsFactible(hijo): Insertar (con su cota)", "\\le N - 1", "O(N \\cdot n^2)"],
     ["RETORNAR mejorSolucion", "1", "O(1)"],
   ],
   note: "$N$ es la cantidad de nodos del árbol: los caminos desde v1 de 1 a $n - 1$ vértices, $N = \\sum_{k=0}^{n-2} \\frac{(n-1)!}{(n-1-k)!} \\le e \\cdot (n-1)!$ (41 con $n = 5$). Cada cota recorre las filas que faltan salir y, en cada una, las columnas permitidas: $O(n^2)$. Como $\\log N = O(n \\log n)$, la cola de prioridad no domina: el total es $O(N \\cdot n^2) = O(n^2 \\cdot (n-1)!)$ en el peor caso, con cualquiera de las tres estrategias. La poda no cambia el peor caso, pero en la práctica genera muchos menos nodos (17 de 41 en el ejemplo).",
@@ -697,7 +708,9 @@ const COMPLEXITY = {
 // (verificado por fuerza bruta sobre las 24 permutaciones), con cualquier estrategia, con o sin greedy.
 (function selfCheck() {
   for (const s of Object.keys(STRATEGIES)) for (const greedy of [true, false]) {
-    const end = computeSteps(DEFAULT_STATE.matrix, s, greedy).steps.at(-1);
+    const { nodes, steps } = computeSteps(DEFAULT_STATE.matrix, s, greedy);
+    const end = steps.at(-1);
+    console.assert(steps.every(st => st.pending.every(id => nodes[id].feasible)), `Viajante (${s}, greedy ${greedy}): un infactible entró a pendientes`);
     console.assert(end.best === 30 && end.bestTour.join() === '0,3,4,1,2,0', `Viajante (${s}, greedy ${greedy}): tour óptimo`, end.best, end.bestTour);
   }
 })();
@@ -938,6 +951,7 @@ createApp({
         'bn-best': s.bestId === n.id,
         'bn-current': s.current === n.id,
         'bn-pinned': pinnedVisible.value && pinnedId.value === n.id,
+        'bn-ghost': n.bound === null,
       };
     }
     function markOf(n) {

@@ -59,6 +59,9 @@
     .bn-text { font-family: Consolas, monospace; font-size: 12px; fill: var(--bs-body-color); }
     .bn-order circle { fill: var(--bs-body-bg); stroke: var(--bs-secondary-color); }
     .bn-order text { font-size: 11px; font-weight: 600; fill: var(--bs-body-color); }
+    /* Fantasma: hijo infactible que se generó pero nunca entró a pendientes */
+    .bn-ghost { opacity: .6; }
+    .bn-ghost .bn-box { fill: none; stroke-dasharray: 2 3; }
     .bn-mark text { font-size: 11px; font-weight: 700; }
     .bn-mark.infeasible circle { fill: var(--bs-emphasis-color); }
     .bn-mark.infeasible text { fill: var(--bs-body-bg); }
@@ -71,6 +74,7 @@
     .legend-box.current { background: var(--bs-warning-bg-subtle); border: 2px solid var(--bs-warning); }
     .legend-box.best { background: var(--bs-success-bg-subtle); border: 2px solid var(--bs-success); }
     .legend-box.pinned { border: 2px solid var(--bs-purple); }
+    .legend-box.ghost { background: none; border: 1px dotted var(--bs-secondary-color); }
     @media (max-width: 768px) {
       #app { height: auto; }
       .main-row, .top-row { flex-direction: column; }
@@ -255,7 +259,7 @@
                 <tr><td class="font-monospace">EsFactible(nodo)</td><td>peso ≤ {{ capacity }}</td></tr>
                 <tr><td class="font-monospace">EsSolucion(nodo)</td><td>siempre: toda selección factible es una solución</td></tr>
                 <tr><td class="font-monospace">Valor(nodo)</td><td>el beneficio</td></tr>
-                <tr><td class="font-monospace">Cota(nodo)</td><td>beneficio + mochila fraccionaria con los ítems que faltan: se toman por p/w de mayor a menor, enteros mientras entren, y del primero que no entra la fracción que cabe (0 si es infactible)</td></tr>
+                <tr><td class="font-monospace">Cota(nodo)</td><td>beneficio + mochila fraccionaria con los ítems que faltan: se toman por p/w de mayor a menor, enteros mientras entren, y del primero que no entra la fracción que cabe</td></tr>
               </tbody>
             </table>
           </div>
@@ -297,7 +301,7 @@
             <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box best"></span> Mejor solución hasta ahora (★)</li>
             <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box pinned"></span> Nodo seleccionado con un clic (o en su paso de la tabla): su paso queda resaltado</li>
             <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill border text-body">3</span> Paso en que salió de pendientes</li>
-            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-dark">✗</span> Infactible (peso &gt; W)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box ghost"></span><span class="badge rounded-pill text-bg-dark">✗</span> Infactible (peso &gt; W): se genera, pero no entra a pendientes</li>
             <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill bg-danger-subtle text-danger-emphasis border border-danger">✂</span> Poda por cota (cota ≤ mejor)</li>
           </ul>
         </div>
@@ -318,7 +322,8 @@ const MAX_ITEMS = 6;
 // El ejemplo de la teoría (Neapolitan): ítems ya ordenados por p/w, W = 16, recorrido en anchura.
 const DEFAULT_STATE = { items: [{ p: 40, w: 2 }, { p: 30, w: 5 }, { p: 50, w: 10 }, { p: 10, w: 5 }], capacity: 16, strategy: 'fifo', sortRatio: false };
 
-// Lo único que cambia entre estrategias es la estructura de pendientes (líneas 0, 2 y 4 del pseudocódigo).
+// Lo único que cambia entre estrategias es la estructura de pendientes. Solo la cola de prioridad
+// guarda la cota al insertar; FIFO y LIFO la calculan recién al chequear.
 const STRATEGIES = {
   best: { name: 'Best-First', fn: 'BestFirst', init: 'ColaDePrioridad', take: 'ExtraerMayorCota', struct: 'cola de prioridad' },
   fifo: { name: 'FIFO (cola)', fn: 'FIFO', init: 'Cola', take: 'Desencolar', struct: 'cola' },
@@ -326,27 +331,29 @@ const STRATEGIES = {
 };
 function pseudocodeFor(strategy) {
   const s = STRATEGIES[strategy];
+  const pq = strategy === 'best';
   return [
     `ALGORITMO BranchAndBound_${s.fn}(raíz)`,
     '  mejor ← −∞',
-    `  pendientes ← ${s.init} con raíz`,
+    `  pendientes ← ${s.init} vacía`,
+    `  Insertar(pendientes, raíz${pq ? ', Cota(raíz)' : ''})`,
     '  MIENTRAS pendientes no esté vacía HACER',
-    `    nodo ← ${s.take}(pendientes)`,
-    '',
-    '    SI NO EsFactible(nodo) O Cota(nodo) ≤ mejor ENTONCES',
+    `    ${pq ? '(nodo, cota)' : 'nodo'} ← ${s.take}(pendientes)`,
+    `    SI ${pq ? 'cota' : 'Cota(nodo)'} ≤ mejor ENTONCES`,
     '      CONTINUAR',
     '    SI EsSolucion(nodo) Y Valor(nodo) > mejor ENTONCES',
     '      mejor ← Valor(nodo)',
     '      mejorSolucion ← nodo',
     '    PARA CADA hijo EN HijosDe(nodo) HACER',
-    '      Insertar(pendientes, hijo)',
+    '      SI EsFactible(hijo) ENTONCES',
+    `        Insertar(pendientes, hijo${pq ? ', Cota(hijo)' : ''})`,
     '  RETORNAR mejorSolucion',
   ];
 }
 
 const MARKS = { infeasible: '✗', pruned: '✂', best: '★' };
 function fmtNum(x) { return Number.isInteger(x) ? String(x) : String(+x.toFixed(2)); }
-function money(x) { return `$${fmtNum(x)}`; }
+function money(x) { return x === null ? '—' : `$${fmtNum(x)}`; }
 function fmtBest(v) { return v === -Infinity ? '−∞' : money(v); }
 function fmtItems(items) { return items.map(it => `${it.p}:${it.w}`).join(', '); }
 // {1, !2}: las decisiones tomadas hasta el nodo, con el número de cada ítem ("!" = no lo incluye).
@@ -368,8 +375,9 @@ function fractionalBound(items, W, depth, profit, weight) {
   return { bound, calc: terms.join(' + ') };
 }
 
-// ── Corre el algoritmo una vez (versión corta: los hijos entran siempre a pendientes y se filtran al salir)
-// y devuelve todos los nodos generados más un snapshot por punto de parada.
+// ── Corre el algoritmo una vez y devuelve todos los nodos generados más un snapshot por punto de parada.
+// Un hijo infactible se genera pero no entra a pendientes (queda como fantasma, sin cota),
+// así que de pendientes nunca sale un infactible.
 function computeSteps(items, W, strategy) {
   const n = items.length;
   const nodes = [];
@@ -380,7 +388,7 @@ function computeSteps(items, W, strategy) {
     const profit = parent ? parent.profit + (inc ? it.p : 0) : 0;
     const weight = parent ? parent.weight + (inc ? it.w : 0) : 0;
     const feasible = weight <= W;
-    const { bound, calc } = feasible ? fractionalBound(items, W, depth, profit, weight) : { bound: 0, calc: '' };
+    const { bound, calc } = feasible ? fractionalBound(items, W, depth, profit, weight) : { bound: null, calc: '' };
     const node = { id: nodes.length, parent: parent ? parent.id : null, depth, inc, picks, profit, weight, feasible,
       bound, calc, label: fmtDecisions(items, picks) };
     nodes.push(node);
@@ -415,7 +423,7 @@ function computeSteps(items, W, strategy) {
   const root = makeNode(null);
   pending.push(root);
   status[root.id] = 'pending';
-  snapshot([2], { icon: '🌱', text: `La raíz {} (todavía no se decidió ningún ítem) entra a pendientes: valor $0, peso 0, cota ${root.calc} = ${money(root.bound)}.`, cls: 'bg-primary' });
+  snapshot([2, 3], { icon: '🌱', text: `La raíz {} (todavía no se decidió ningún ítem) entra a pendientes: valor $0, peso 0, cota ${root.calc} = ${money(root.bound)}.`, cls: 'bg-primary' });
 
   let k = 0, cutNoted = false;
   while (pending.length) {
@@ -429,14 +437,8 @@ function computeSteps(items, W, strategy) {
     rows.push(row);
     const why = strategy === 'best' ? `Es el de mayor cota en pendientes${tie ? ' (empata con otro: sale el que entró primero)' : ''}.`
       : strategy === 'fifo' ? 'Es el que entró primero a la cola.' : 'Es el último que entró a la pila.';
-    snapshot([3, 4], { icon: '📤', text: `Paso ${k}: sale ${label} con valor ${money(profit)}, peso ${weight} y cota ${money(bound)}. ${why}`, cls: 'bg-warning text-dark' });
+    snapshot([4, 5], { icon: '📤', text: `Paso ${k}: sale ${label} con valor ${money(profit)}, peso ${weight} y cota ${money(bound)}. ${why}`, cls: 'bg-warning text-dark' });
 
-    if (!node.feasible) {
-      status[node.id] = 'infeasible';
-      row.what = `infactible: peso ${weight} > ${W}`;
-      snapshot([6, 7], { icon: '✗', text: `${label} es infactible: peso ${weight} > ${W}. Se descarta (CONTINUAR) sin generar sus hijos. Entró a pendientes igual porque recién se chequea al salir.`, cls: 'bg-dark' });
-      continue;
-    }
     if (bound <= best) {
       status[node.id] = 'pruned';
       row.what = `poda: cota ${money(bound)} ≤ ${money(best)}`;
@@ -448,7 +450,7 @@ function computeSteps(items, W, strategy) {
       snapshot([6, 7], { icon: '✂', text, cls: 'bg-danger' });
       continue;
     }
-    snapshot([6], { icon: '✔️', text: `${label} es factible (peso ${weight} ≤ ${W}) y su cota ${money(bound)} > mejor = ${fmtBest(best)}: puede llevar a algo mejor, se sigue.`, cls: 'bg-info text-dark' });
+    snapshot([6], { icon: '✔️', text: `Su cota ${money(bound)} > mejor = ${fmtBest(best)}: puede llevar a algo mejor, se sigue.`, cls: 'bg-info text-dark' });
 
     if (profit > best) {
       const prev = best;
@@ -468,26 +470,32 @@ function computeSteps(items, W, strategy) {
     }
     const it = items[node.depth];
     const inserts = [];
+    let discarded = '';
     for (const inc of [true, false]) {
       const child = makeNode(node, inc);
+      inserted = child.id;
+      if (!child.feasible) {
+        status[child.id] = 'infeasible';
+        row.what = `descarta ${child.label} (infactible)`;
+        discarded = `${row.what}; `;
+        snapshot([11, 12], { icon: '✗', text: `Incluye el ítem ${it.i} (${money(it.p)}, peso ${it.w}): ${child.label} con valor ${money(child.profit)} y peso ${child.weight} > ${W}: infactible. No entra a pendientes: queda como fantasma, sin cota y sin hijos.`, cls: 'bg-dark' });
+        continue;
+      }
       pending.push(child);
       status[child.id] = 'pending';
-      inserted = child.id;
       inserts.push(child.label);
-      row.what = `inserta ${inserts.join(' y ')}`;
-      let text = `${inc ? 'Incluye' : 'No incluye'} el ítem ${it.i} (${money(it.p)}, peso ${it.w}): ${child.label} con valor ${money(child.profit)} y peso ${child.weight}`;
-      text += child.feasible ? `; cota = ${child.calc} = ${money(child.bound)}.`
-        : ` > ${W}: infactible, cota 0. Igual entra a pendientes; se descarta recién al salir.`;
+      row.what = `${discarded}inserta ${inserts.join(' y ')}`;
+      let text = `${inc ? 'Incluye' : 'No incluye'} el ítem ${it.i} (${money(it.p)}, peso ${it.w}): ${child.label} con valor ${money(child.profit)} y peso ${child.weight}; cota = ${child.calc} = ${money(child.bound)}.`;
       if (strategy === 'lifo' && !inc) text += ' Con la pila, este (el último que entró) es el próximo en salir.';
-      snapshot([11, 12], { icon: '📥', text, cls: 'bg-primary' });
+      snapshot([11, 12, 13], { icon: '📥', text, cls: 'bg-primary' });
     }
   }
 
   current = null;
   inserted = null;
-  snapshot([3], { icon: '🛑', text: `pendientes quedó vacía: se generaron ${nodes.length} de ${2 ** (n + 1) - 1} nodos posibles.`, cls: 'bg-secondary' });
+  snapshot([4], { icon: '🛑', text: `pendientes quedó vacía: se generaron ${nodes.length} de ${2 ** (n + 1) - 1} nodos posibles.`, cls: 'bg-secondary' });
   const sol = nodes[bestId];
-  snapshot([13], { icon: '🏁', text: `Retorna mejorSolucion = ${fmtChosen(items, sol)}: valor ${money(sol.profit)} y peso ${sol.weight} de ${W}.`, cls: 'bg-success' });
+  snapshot([14], { icon: '🏁', text: `Retorna mejorSolucion = ${fmtChosen(items, sol)}: valor ${money(sol.profit)} y peso ${sol.weight} de ${W}.`, cls: 'bg-success' });
   return { nodes, steps };
 }
 
@@ -539,12 +547,12 @@ const COMPLEXITY = {
   total: "O(n \\cdot 2^n)",
   headers: ["Línea", "Veces", "Costo"],
   rows: [
-    ["mejor ← −∞; pendientes ← … con raíz", "1", "O(1)"],
+    ["mejor ← −∞; pendientes ← …; Insertar(raíz)", "1", "O(1)"],
     ["MIENTRAS pendientes no esté vacía", "\\le 2^{n+1}", "O(2^n)"],
-    ["nodo ← ExtraerMayorCota(pendientes)", "\\le 2^{n+1} - 1", "O(n \\cdot 2^n)"],
-    ["SI NO EsFactible(nodo) O Cota(nodo) ≤ mejor", "\\le 2^{n+1} - 1", "O(2^n)"],
+    ["(nodo, cota) ← ExtraerMayorCota(pendientes)", "\\le 2^{n+1} - 1", "O(n \\cdot 2^n)"],
+    ["SI cota ≤ mejor", "\\le 2^{n+1} - 1", "O(2^n)"],
     ["SI EsSolucion(nodo) Y Valor(nodo) > mejor", "\\le 2^{n+1} - 1", "O(2^n)"],
-    ["PARA CADA hijo EN HijosDe(nodo): Insertar (con su cota)", "\\le 2^{n+1} - 2", "O(n \\cdot 2^n)"],
+    ["PARA CADA hijo: SI EsFactible(hijo): Insertar (con su cota)", "\\le 2^{n+1} - 2", "O(n \\cdot 2^n)"],
     ["RETORNAR mejorSolucion", "1", "O(1)"],
   ],
   note: "En el peor caso no se poda nada y se generan los $2^{n+1} - 1$ nodos del árbol. Si el nodo guarda beneficio, peso y profundidad, la factibilidad cuesta $O(1)$, pero la cota (mochila fraccionaria) recorre los ítems que faltan: $O(n)$ por nodo si ya están ordenados por $p/w$ (ordenarlos una vez al principio cuesta $O(n \\log n)$). Con la cola de prioridad, insertar y extraer cuestan $O(\\log 2^n) = O(n)$. Total: $O(n \\cdot 2^n)$ con cualquiera de las tres estrategias. La poda no cambia el peor caso, pero en la práctica genera muchos menos nodos. En memoria, FIFO y Best-First pueden llegar a tener $O(2^n)$ nodos pendientes a la vez; LIFO, como DFS, tiene $O(n)$.",
@@ -554,8 +562,9 @@ const COMPLEXITY = {
 // con cualquier estrategia.
 (function selfCheck() {
   for (const s of Object.keys(STRATEGIES)) {
-    const end = computeSteps(DEFAULT_STATE.items, DEFAULT_STATE.capacity, s).steps.at(-1);
-    console.assert(end.best === 90, `Mochila B&B (${s}): valor óptimo`, end.best);
+    const { nodes, steps } = computeSteps(DEFAULT_STATE.items, DEFAULT_STATE.capacity, s);
+    console.assert(steps.at(-1).best === 90, `Mochila B&B (${s}): valor óptimo`, steps.at(-1).best);
+    console.assert(steps.every(st => st.pending.every(id => nodes[id].feasible)), `Mochila B&B (${s}): un infactible entró a pendientes`);
   }
 })();
 
@@ -734,6 +743,7 @@ createApp({
         'bn-best': s.bestId === n.id,
         'bn-current': s.current === n.id,
         'bn-pinned': pinnedVisible.value && pinnedId.value === n.id,
+        'bn-ghost': n.bound === null,
       };
     }
     function markOf(n) {
@@ -744,7 +754,7 @@ createApp({
     function nodeTitle(n) {
       const s = currentStep.value;
       const st = { pending: 'en pendientes', out: 'ya salió', infeasible: 'infactible', pruned: 'podado por cota' }[s.status[n.id]];
-      return `${n.label}: valor ${money(n.profit)}, peso ${n.weight}, cota ${money(n.bound)} — ${st}${s.order[n.id] ? ` (salió en el paso ${s.order[n.id]})` : ''}. Clic para resaltar su paso en la tabla.`;
+      return `${n.label}: valor ${money(n.profit)}, peso ${n.weight}, ${n.bound === null ? 'sin cota' : `cota ${money(n.bound)}`} — ${st}${s.order[n.id] ? ` (salió en el paso ${s.order[n.id]})` : ''}. Clic para resaltar su paso en la tabla.`;
     }
 
     // ── Persistencia ──
