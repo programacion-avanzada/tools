@@ -59,6 +59,9 @@
     .bn-text { font-family: Consolas, monospace; font-size: 12px; fill: var(--bs-body-color); }
     .bn-order circle { fill: var(--bs-body-bg); stroke: var(--bs-secondary-color); }
     .bn-order text { font-size: 11px; font-weight: 600; fill: var(--bs-body-color); }
+    /* Fantasma: hijo infactible que se generó pero nunca entró a pendientes */
+    .bn-ghost { opacity: .6; }
+    .bn-ghost .bn-box { fill: none; stroke-dasharray: 2 3; }
     .bn-mark text { font-size: 11px; font-weight: 700; }
     .bn-mark.infeasible circle { fill: var(--bs-emphasis-color); }
     .bn-mark.infeasible text { fill: var(--bs-body-bg); }
@@ -71,6 +74,7 @@
     .legend-box.current { background: var(--bs-warning-bg-subtle); border: 2px solid var(--bs-warning); }
     .legend-box.best { background: var(--bs-success-bg-subtle); border: 2px solid var(--bs-success); }
     .legend-box.pinned { border: 2px solid var(--bs-purple); }
+    .legend-box.ghost { background: none; border: 1px dotted var(--bs-secondary-color); }
     @media (max-width: 768px) {
       #app { height: auto; }
       .main-row, .top-row { flex-direction: column; }
@@ -132,7 +136,7 @@
                   <title>{{ nodeTitle(n) }}</title>
                   <rect class="bn-box" :x="-layout.boxW / 2" :y="-BOX_H / 2" :width="layout.boxW" :height="BOX_H" rx="6" />
                   <text class="bn-text" text-anchor="middle" y="-5">{{ n.label }}</text>
-                  <text class="bn-text" text-anchor="middle" y="12">{{ n.sum }} / {{ n.bound }}</text>
+                  <text class="bn-text" text-anchor="middle" y="12">{{ n.sum }} / {{ n.bound ?? '—' }}</text>
                   <g class="bn-order" v-if="currentStep.order[n.id]" :transform="`translate(${layout.boxW / 2 - 4}, ${-BOX_H / 2})`">
                     <circle r="11" />
                     <text text-anchor="middle" dominant-baseline="central">{{ currentStep.order[n.id] }}</text>
@@ -246,7 +250,7 @@
                 <tr><td class="font-monospace">EsFactible(nodo)</td><td>suma ≤ {{ target }}</td></tr>
                 <tr><td class="font-monospace">EsSolucion(nodo)</td><td>siempre: todo subconjunto factible es una solución</td></tr>
                 <tr><td class="font-monospace">Valor(nodo)</td><td>la suma</td></tr>
-                <tr><td class="font-monospace">Cota(nodo)</td><td>suma + todos los números que faltan decidir (0 si es infactible)</td></tr>
+                <tr><td class="font-monospace">Cota(nodo)</td><td>suma + todos los números que faltan decidir</td></tr>
               </tbody>
             </table>
           </div>
@@ -288,7 +292,7 @@
             <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box best"></span> Mejor solución hasta ahora (★)</li>
             <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box pinned"></span> Nodo seleccionado con un clic (o en su paso de la tabla): su paso queda resaltado</li>
             <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill border text-body">3</span> Paso en que salió de pendientes</li>
-            <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-dark">✗</span> Infactible (suma &gt; W)</li>
+            <li class="list-group-item d-flex align-items-center gap-2"><span class="legend-box ghost"></span><span class="badge rounded-pill text-bg-dark">✗</span> Infactible (suma &gt; W): se genera, pero no entra a pendientes</li>
             <li class="list-group-item d-flex align-items-center gap-2"><span class="badge rounded-pill bg-danger-subtle text-danger-emphasis border border-danger">✂</span> Poda por cota (cota ≤ mejor)</li>
           </ul>
         </div>
@@ -308,7 +312,8 @@ const { createApp, ref, reactive, computed, watch, nextTick, onMounted, onBefore
 const MAX_ITEMS = 6;
 const DEFAULT_STATE = { items: [10, 8, 7, 2], target: 19, strategy: 'best', sortDesc: false };
 
-// Lo único que cambia entre estrategias es la estructura de pendientes (líneas 0, 2 y 4 del pseudocódigo).
+// Lo único que cambia entre estrategias es la estructura de pendientes. Solo la cola de prioridad
+// guarda la cota al insertar; FIFO y LIFO la calculan recién al chequear.
 const STRATEGIES = {
   best: { name: 'Best-First', fn: 'BestFirst', init: 'ColaDePrioridad', take: 'ExtraerMayorCota', struct: 'cola de prioridad' },
   fifo: { name: 'FIFO (cola)', fn: 'FIFO', init: 'Cola', take: 'Desencolar', struct: 'cola' },
@@ -316,20 +321,22 @@ const STRATEGIES = {
 };
 function pseudocodeFor(strategy) {
   const s = STRATEGIES[strategy];
+  const pq = strategy === 'best';
   return [
     `ALGORITMO BranchAndBound_${s.fn}(raíz)`,
     '  mejor ← −∞',
-    `  pendientes ← ${s.init} con raíz`,
+    `  pendientes ← ${s.init} vacía`,
+    `  Insertar(pendientes, raíz${pq ? ', Cota(raíz)' : ''})`,
     '  MIENTRAS pendientes no esté vacía HACER',
-    `    nodo ← ${s.take}(pendientes)`,
-    '',
-    '    SI NO EsFactible(nodo) O Cota(nodo) ≤ mejor ENTONCES',
+    `    ${pq ? '(nodo, cota)' : 'nodo'} ← ${s.take}(pendientes)`,
+    `    SI ${pq ? 'cota' : 'Cota(nodo)'} ≤ mejor ENTONCES`,
     '      CONTINUAR',
     '    SI EsSolucion(nodo) Y Valor(nodo) > mejor ENTONCES',
     '      mejor ← Valor(nodo)',
     '      mejorSolucion ← nodo',
     '    PARA CADA hijo EN HijosDe(nodo) HACER',
-    '      Insertar(pendientes, hijo)',
+    '      SI EsFactible(hijo) ENTONCES',
+    `        Insertar(pendientes, hijo${pq ? ', Cota(hijo)' : ''})`,
     '  RETORNAR mejorSolucion',
   ];
 }
@@ -339,8 +346,9 @@ function fmtBest(v) { return v === -Infinity ? '−∞' : String(v); }
 // {10, !8}: las decisiones tomadas hasta el nodo ("!" = no incluye).
 function fmtDecisions(items, picks) { return `{${picks.map((p, i) => (p ? '' : '!') + items[i]).join(', ')}}`; }
 
-// ── Corre el algoritmo una vez (versión corta: los hijos entran siempre a pendientes y se filtran al salir)
-// y devuelve todos los nodos generados más un snapshot por punto de parada.
+// ── Corre el algoritmo una vez y devuelve todos los nodos generados más un snapshot por punto de parada.
+// Un hijo infactible se genera pero no entra a pendientes (queda como fantasma, sin cota),
+// así que de pendientes nunca sale un infactible.
 function computeSteps(items, W, strategy) {
   const n = items.length;
   const rest = Array(n + 1).fill(0); // rest[d] = suma de los números que faltan decidir a profundidad d
@@ -353,7 +361,7 @@ function computeSteps(items, W, strategy) {
     const sum = parent ? parent.sum + (inc ? items[depth - 1] : 0) : 0;
     const feasible = sum <= W;
     const node = { id: nodes.length, parent: parent ? parent.id : null, depth, inc, picks, sum, feasible,
-      bound: feasible ? sum + rest[depth] : 0, label: fmtDecisions(items, picks) };
+      bound: feasible ? sum + rest[depth] : null, label: fmtDecisions(items, picks) };
     nodes.push(node);
     return node;
   }
@@ -386,7 +394,7 @@ function computeSteps(items, W, strategy) {
   const root = makeNode(null);
   pending.push(root);
   status[root.id] = 'pending';
-  snapshot([2], { icon: '🌱', text: `La raíz {} (todavía no se decidió ningún número) entra a pendientes: suma 0, cota 0 + ${rest[0]} = ${root.bound}.`, cls: 'bg-primary' });
+  snapshot([2, 3], { icon: '🌱', text: `La raíz {} (todavía no se decidió ningún número) entra a pendientes: suma 0, cota 0 + ${rest[0]} = ${root.bound}.`, cls: 'bg-primary' });
 
   let k = 0, cutNoted = false;
   while (pending.length) {
@@ -400,14 +408,8 @@ function computeSteps(items, W, strategy) {
     rows.push(row);
     const why = strategy === 'best' ? `Es el de mayor cota en pendientes${tie ? ' (empata con otro: sale el que entró primero)' : ''}.`
       : strategy === 'fifo' ? 'Es el que entró primero a la cola.' : 'Es el último que entró a la pila.';
-    snapshot([3, 4], { icon: '📤', text: `Paso ${k}: sale ${label} con suma ${sum} y cota ${bound}. ${why}`, cls: 'bg-warning text-dark' });
+    snapshot([4, 5], { icon: '📤', text: `Paso ${k}: sale ${label} con suma ${sum} y cota ${bound}. ${why}`, cls: 'bg-warning text-dark' });
 
-    if (!node.feasible) {
-      status[node.id] = 'infeasible';
-      row.what = `infactible: ${sum} > ${W}`;
-      snapshot([6, 7], { icon: '✗', text: `${label} es infactible: suma ${sum} > ${W}. Se descarta (CONTINUAR) sin generar sus hijos. Entró a pendientes igual porque recién se chequea al salir.`, cls: 'bg-dark' });
-      continue;
-    }
     if (bound <= best) {
       status[node.id] = 'pruned';
       row.what = `poda: cota ${bound} ≤ ${best}`;
@@ -419,7 +421,7 @@ function computeSteps(items, W, strategy) {
       snapshot([6, 7], { icon: '✂', text, cls: 'bg-danger' });
       continue;
     }
-    snapshot([6], { icon: '✔️', text: `${label} es factible (${sum} ≤ ${W}) y su cota ${bound} > mejor = ${fmtBest(best)}: puede llevar a algo mejor, se sigue.`, cls: 'bg-info text-dark' });
+    snapshot([6], { icon: '✔️', text: `Su cota ${bound} > mejor = ${fmtBest(best)}: puede llevar a algo mejor, se sigue.`, cls: 'bg-info text-dark' });
 
     if (sum > best) {
       const prev = best;
@@ -439,26 +441,32 @@ function computeSteps(items, W, strategy) {
     }
     const x = items[node.depth];
     const inserts = [];
+    let discarded = '';
     for (const inc of [true, false]) {
       const child = makeNode(node, inc);
+      inserted = child.id;
+      if (!child.feasible) {
+        status[child.id] = 'infeasible';
+        row.what = `descarta ${child.label} (infactible)`;
+        discarded = `${row.what}; `;
+        snapshot([11, 12], { icon: '✗', text: `Incluye el ${x}: ${child.label} con suma ${child.sum} > ${W}: infactible. No entra a pendientes: queda como fantasma, sin cota y sin hijos.`, cls: 'bg-dark' });
+        continue;
+      }
       pending.push(child);
       status[child.id] = 'pending';
-      inserted = child.id;
       inserts.push(child.label);
-      row.what = `inserta ${inserts.join(' y ')}`;
-      let text = `${inc ? 'Incluye' : 'No incluye'} el ${x}: ${child.label} con suma ${child.sum}`;
-      text += child.feasible ? ` y cota ${child.sum} + ${rest[child.depth]} = ${child.bound}.`
-        : ` > ${W}: infactible, cota 0. Igual entra a pendientes; se descarta recién al salir.`;
+      row.what = `${discarded}inserta ${inserts.join(' y ')}`;
+      let text = `${inc ? 'Incluye' : 'No incluye'} el ${x}: ${child.label} con suma ${child.sum} y cota ${child.sum} + ${rest[child.depth]} = ${child.bound}.`;
       if (strategy === 'lifo' && !inc) text += ' Con la pila, este (el último que entró) es el próximo en salir.';
-      snapshot([11, 12], { icon: '📥', text, cls: 'bg-primary' });
+      snapshot([11, 12, 13], { icon: '📥', text, cls: 'bg-primary' });
     }
   }
 
   current = null;
   inserted = null;
-  snapshot([3], { icon: '🛑', text: `pendientes quedó vacía: se generaron ${nodes.length} de ${2 ** (n + 1) - 1} nodos posibles.`, cls: 'bg-secondary' });
+  snapshot([4], { icon: '🛑', text: `pendientes quedó vacía: se generaron ${nodes.length} de ${2 ** (n + 1) - 1} nodos posibles.`, cls: 'bg-secondary' });
   const exact = best === W ? ' Llega justo a W.' : '';
-  snapshot([13], { icon: '🏁', text: `Retorna mejorSolucion = ${fmtChosen(items, nodes[bestId])}, con suma ${best}.${exact}`, cls: 'bg-success' });
+  snapshot([14], { icon: '🏁', text: `Retorna mejorSolucion = ${fmtChosen(items, nodes[bestId])}, con suma ${best}.${exact}`, cls: 'bg-success' });
   return { nodes, steps };
 }
 // {10, 7, 2}: solo los números elegidos.
@@ -507,12 +515,12 @@ const COMPLEXITY = {
   total: "O(n \\cdot 2^n)",
   headers: ["Línea", "Veces", "Costo"],
   rows: [
-    ["mejor ← −∞; pendientes ← … con raíz", "1", "O(1)"],
+    ["mejor ← −∞; pendientes ← …; Insertar(raíz)", "1", "O(1)"],
     ["MIENTRAS pendientes no esté vacía", "\\le 2^{n+1}", "O(2^n)"],
-    ["nodo ← ExtraerMayorCota(pendientes)", "\\le 2^{n+1} - 1", "O(n \\cdot 2^n)"],
-    ["SI NO EsFactible(nodo) O Cota(nodo) ≤ mejor", "\\le 2^{n+1} - 1", "O(2^n)"],
+    ["(nodo, cota) ← ExtraerMayorCota(pendientes)", "\\le 2^{n+1} - 1", "O(n \\cdot 2^n)"],
+    ["SI cota ≤ mejor", "\\le 2^{n+1} - 1", "O(2^n)"],
     ["SI EsSolucion(nodo) Y Valor(nodo) > mejor", "\\le 2^{n+1} - 1", "O(2^n)"],
-    ["PARA CADA hijo EN HijosDe(nodo): Insertar", "\\le 2^{n+1} - 2", "O(n \\cdot 2^n)"],
+    ["PARA CADA hijo: SI EsFactible(hijo): Insertar", "\\le 2^{n+1} - 2", "O(n \\cdot 2^n)"],
     ["RETORNAR mejorSolucion", "1", "O(1)"],
   ],
   note: "En el peor caso no se poda nada y se generan los $2^{n+1} - 1$ nodos del árbol. Si el nodo guarda su suma y la profundidad, factibilidad y cota cuestan $O(1)$ (con las sumas de los que faltan precalculadas). Con la cola de prioridad (un heap de hasta $2^n$ nodos) cada inserción y extracción cuesta $O(\\log 2^n) = O(n)$: total $O(n \\cdot 2^n)$. Con cola o pila (FIFO/LIFO) cuestan $O(1)$: total $O(2^n)$. La poda no cambia el peor caso, pero en la práctica genera muchos menos nodos (13 de 31 en el ejemplo). En memoria, FIFO y Best-First pueden llegar a tener $O(2^n)$ nodos pendientes a la vez; LIFO, como DFS, tiene $O(n)$.",
@@ -521,8 +529,9 @@ const COMPLEXITY = {
 // Auto-chequeo con el ejemplo por defecto: la mejor suma que no pasa de 19 es 19 = 10 + 7 + 2, con cualquier estrategia.
 (function selfCheck() {
   for (const s of Object.keys(STRATEGIES)) {
-    const end = computeSteps(DEFAULT_STATE.items, DEFAULT_STATE.target, s).steps.at(-1);
-    console.assert(end.best === 19, `Suma de subconjuntos (${s}): mejor suma`, end.best);
+    const { nodes, steps } = computeSteps(DEFAULT_STATE.items, DEFAULT_STATE.target, s);
+    console.assert(steps.at(-1).best === 19, `Suma de subconjuntos (${s}): mejor suma`, steps.at(-1).best);
+    console.assert(steps.every(st => st.pending.every(id => nodes[id].feasible)), `Suma de subconjuntos (${s}): un infactible entró a pendientes`);
   }
 })();
 
@@ -697,6 +706,7 @@ createApp({
         'bn-best': s.bestId === n.id,
         'bn-current': s.current === n.id,
         'bn-pinned': pinnedVisible.value && pinnedId.value === n.id,
+        'bn-ghost': n.bound === null,
       };
     }
     function markOf(n) {
@@ -707,7 +717,7 @@ createApp({
     function nodeTitle(n) {
       const s = currentStep.value;
       const st = { pending: 'en pendientes', out: 'ya salió', infeasible: 'infactible', pruned: 'podado por cota' }[s.status[n.id]];
-      return `${n.label}: suma ${n.sum}, cota ${n.bound} — ${st}${s.order[n.id] ? ` (salió en el paso ${s.order[n.id]})` : ''}. Clic para resaltar su paso en la tabla.`;
+      return `${n.label}: suma ${n.sum}, ${n.bound === null ? 'sin cota' : `cota ${n.bound}`} — ${st}${s.order[n.id] ? ` (salió en el paso ${s.order[n.id]})` : ''}. Clic para resaltar su paso en la tabla.`;
     }
 
     // ── Persistencia ──
